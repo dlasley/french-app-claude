@@ -33,6 +33,7 @@ export default function QuizPage() {
   const numQuestions = parseInt(searchParams.get('num') || '5');
   const difficulty = searchParams.get('difficulty') || 'beginner';
   const mode = (searchParams.get('mode') || 'practice') as QuizMode;
+  const previewMode = searchParams.get('preview');
 
   const unit = unitId === 'all' ? null : units.find((u) => u.id === unitId);
   const displayTitle = unitId === 'all' ? 'All Units' : unit?.title || 'Quiz';
@@ -52,6 +53,7 @@ export default function QuizPage() {
   const [loadingStudyGuide, setLoadingStudyGuide] = useState(false);
   const [isSuperuser, setIsSuperuser] = useState(false);
   const [studyCodeUuid, setStudyCodeUuid] = useState<string | null>(null);
+  const [activeResultsTab, setActiveResultsTab] = useState<'answers' | 'studyGuide'>('answers');
 
   // Compute effective superuser status - sessionStorage override ALWAYS takes precedence
   // This ensures the override is respected immediately, even before React state updates
@@ -135,6 +137,97 @@ export default function QuizPage() {
       window.removeEventListener(SUPERUSER_CHANGE_EVENT, handleSuperuserChange);
     };
   }, []);
+
+  // Preview mode: show results screen with mock data for testing UI
+  useEffect(() => {
+    if (previewMode === 'results') {
+      const mockQuestions: Question[] = [
+        {
+          id: 'mock-1',
+          unitId: 'preview',
+          type: 'multiple-choice',
+          question: 'What is "hello" in French?',
+          options: ['Bonjour', 'Au revoir', 'Merci', 'Oui'],
+          correctAnswer: 'Bonjour',
+          explanation: 'Bonjour is the standard French greeting.',
+          difficulty: 'beginner',
+          topic: 'Greetings',
+        },
+        {
+          id: 'mock-2',
+          unitId: 'preview',
+          type: 'writing',
+          question: 'Translate: "I am a student"',
+          correctAnswer: 'Je suis étudiant',
+          difficulty: 'intermediate',
+          topic: 'Self Introduction',
+          writingType: 'translation',
+        },
+        {
+          id: 'mock-3',
+          unitId: 'preview',
+          type: 'fill-in-blank',
+          question: 'Complete: Je ___ français. (I speak French)',
+          correctAnswer: 'parle',
+          difficulty: 'beginner',
+          topic: 'Verbs',
+        },
+      ];
+
+      setQuestions(mockQuestions);
+      setUserAnswers({
+        'mock-1': 'Au revoir',
+        'mock-2': 'Je suis etudiant',
+        'mock-3': 'parle',
+      });
+      setEvaluationResults({
+        'mock-2': {
+          isCorrect: true,
+          score: 85,
+          hasCorrectAccents: false,
+          feedback: 'Good translation! Watch the accent on "étudiant".',
+          corrections: {},
+          correctedAnswer: 'Je suis étudiant',
+          metadata: {
+            difficulty: 'intermediate',
+            evaluationTier: 'fuzzy_logic',
+            levenshteinSimilarity: 92,
+            levenshteinThreshold: 80,
+            matchedAgainst: 'primary_answer',
+            evaluationReason: 'Fuzzy match passed threshold',
+            usedClaudeAPI: false,
+          },
+        },
+        'mock-3': {
+          isCorrect: true,
+          score: 100,
+          hasCorrectAccents: true,
+          feedback: 'Perfect!',
+          corrections: {},
+          metadata: {
+            difficulty: 'beginner',
+            evaluationTier: 'exact_match',
+            levenshteinSimilarity: 100,
+            matchedAgainst: 'primary_answer',
+            evaluationReason: 'Exact match found',
+            usedClaudeAPI: false,
+          },
+        },
+      });
+      setStudyGuide([
+        {
+          topic: 'Greetings',
+          count: 1,
+          resources: [
+            { url: 'https://youtube.com/example1', title: 'French Greetings for Beginners' },
+            { url: 'https://youtube.com/example2', title: 'Common French Phrases' },
+          ],
+        },
+      ]);
+      setShowResults(true);
+      setLoading(false);
+    }
+  }, [previewMode]);
 
   // Load questions on mount
   useEffect(() => {
@@ -386,6 +479,35 @@ export default function QuizPage() {
             )}
           </div>
 
+          {/* Tab Navigation */}
+          <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
+            <button
+              onClick={() => setActiveResultsTab('answers')}
+              className={`flex-1 py-3 px-4 text-sm font-semibold transition-colors ${
+                activeResultsTab === 'answers'
+                  ? 'text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              Questions & Answers
+            </button>
+            <button
+              onClick={() => setActiveResultsTab('studyGuide')}
+              className={`flex-1 py-3 px-4 text-sm font-semibold transition-colors ${
+                activeResultsTab === 'studyGuide'
+                  ? 'text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              Study Guide
+              {loadingStudyGuide && (
+                <span className="ml-2 inline-block w-4 h-4 border-2 border-gray-300 border-t-indigo-600 rounded-full animate-spin"></span>
+              )}
+            </button>
+          </div>
+
+          {/* Questions & Answers Tab */}
+          {activeResultsTab === 'answers' && (
           <div className="space-y-4 mb-8">
             {questions.map((q, idx) => {
               const userAnswer = userAnswers[q.id];
@@ -591,101 +713,114 @@ export default function QuizPage() {
               );
             })}
           </div>
-
-          {/* Study Guide Section */}
-          {loadingStudyGuide && (
-            <div className="mb-8 p-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <div className="flex items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
-                <p className="text-blue-800 dark:text-blue-200">Generating your personalized study guide...</p>
-              </div>
-            </div>
           )}
 
-          {!loadingStudyGuide && studyGuide.length > 0 && (
+          {/* Study Guide Tab */}
+          {activeResultsTab === 'studyGuide' && (
             <div className="mb-8">
-              <div className="bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg p-6 text-white mb-4">
-                <h3 className="text-2xl font-bold mb-2">📚 Study Guide</h3>
-                <p className="text-purple-100">
-                  Based on your results, here are some topics to review:
-                </p>
-              </div>
-
-              <div className="space-y-6">
-                {studyGuide.map((recommendation, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-white dark:bg-gray-800 border-2 border-purple-200 dark:border-purple-800 rounded-lg p-6"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <h4 className="text-xl font-bold text-gray-900 dark:text-white">
-                        {recommendation.topic}
-                      </h4>
-                      <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-sm font-semibold">
-                        {recommendation.count} {recommendation.count === 1 ? 'question' : 'questions'} missed
-                      </span>
-                    </div>
-
-                    {recommendation.resources.length > 0 ? (
-                      <div>
-                        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                          Recommended Videos:
-                        </p>
-                        <div className="space-y-2">
-                          {recommendation.resources.map((resource, resIdx) => (
-                            <a
-                              key={resIdx}
-                              href={resource.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors group"
-                            >
-                              <svg
-                                className="w-5 h-5 text-red-600 flex-shrink-0"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                              >
-                                <path d="M10 0C4.477 0 0 4.477 0 10s4.477 10 10 10 10-4.477 10-10S15.523 0 10 0zm3.5 10.5l-5 3a.5.5 0 01-.75-.433v-6a.5.5 0 01.75-.433l5 3a.5.5 0 010 .866z" />
-                              </svg>
-                              <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-purple-700 dark:group-hover:text-purple-300">
-                                {resource.title || 'Video Resource'}
-                              </span>
-                              <svg
-                                className="w-4 h-4 ml-auto text-gray-400 group-hover:text-purple-600"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                                />
-                              </svg>
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-600 dark:text-gray-400 italic">
-                        No video resources available for this topic yet.
-                      </p>
-                    )}
+              {loadingStudyGuide && (
+                <div className="p-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+                    <p className="text-blue-800 dark:text-blue-200">Generating your personalized study guide...</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </div>
+              )}
 
-          {!loadingStudyGuide && studyGuide.length === 0 && score.percentage === 100 && (
-            <div className="mb-8 p-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-center">
-              <p className="text-xl font-bold text-green-800 dark:text-green-300">
-                Perfect Score! 🎉
-              </p>
-              <p className="text-green-700 dark:text-green-400 mt-2">
-                You've mastered this material. Keep up the excellent work!
-              </p>
+              {!loadingStudyGuide && studyGuide.length > 0 && (
+                <>
+                  <div className="bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg p-6 text-white mb-4">
+                    <h3 className="text-2xl font-bold mb-2">Study Guide</h3>
+                    <p className="text-purple-100">
+                      Based on your results, here are some topics to review:
+                    </p>
+                  </div>
+
+                  <div className="space-y-6">
+                    {studyGuide.map((recommendation, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-white dark:bg-gray-800 border-2 border-purple-200 dark:border-purple-800 rounded-lg p-6"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
+                          <h4 className="text-xl font-bold text-gray-900 dark:text-white">
+                            {recommendation.topic}
+                          </h4>
+                          <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-sm font-semibold whitespace-nowrap self-start">
+                            {recommendation.count} {recommendation.count === 1 ? 'question' : 'questions'} missed
+                          </span>
+                        </div>
+
+                        {recommendation.resources.length > 0 ? (
+                          <div>
+                            <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                              Recommended Videos:
+                            </p>
+                            <div className="space-y-2">
+                              {recommendation.resources.map((resource, resIdx) => (
+                                <a
+                                  key={resIdx}
+                                  href={resource.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors group"
+                                >
+                                  <svg
+                                    className="w-5 h-5 text-red-600 flex-shrink-0"
+                                    fill="currentColor"
+                                    viewBox="0 0 20 20"
+                                  >
+                                    <path d="M10 0C4.477 0 0 4.477 0 10s4.477 10 10 10 10-4.477 10-10S15.523 0 10 0zm3.5 10.5l-5 3a.5.5 0 01-.75-.433v-6a.5.5 0 01.75-.433l5 3a.5.5 0 010 .866z" />
+                                  </svg>
+                                  <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-purple-700 dark:group-hover:text-purple-300 break-words">
+                                    {resource.title || 'Video Resource'}
+                                  </span>
+                                  <svg
+                                    className="w-4 h-4 ml-auto text-gray-400 group-hover:text-purple-600 flex-shrink-0"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                                    />
+                                  </svg>
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-600 dark:text-gray-400 italic">
+                            No video resources available for this topic yet.
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {!loadingStudyGuide && studyGuide.length === 0 && score.percentage === 100 && (
+                <div className="p-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-center">
+                  <p className="text-xl font-bold text-green-800 dark:text-green-300">
+                    Perfect Score!
+                  </p>
+                  <p className="text-green-700 dark:text-green-400 mt-2">
+                    You've mastered this material. Keep up the excellent work!
+                  </p>
+                </div>
+              )}
+
+              {!loadingStudyGuide && studyGuide.length === 0 && score.percentage < 100 && (
+                <div className="p-6 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-center">
+                  <p className="text-gray-600 dark:text-gray-400">
+                    No study recommendations available for this quiz.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
