@@ -1,68 +1,56 @@
 # Progress Tracker
 
 ## Current Branch
-`feature/writing-questions-qr-refactoring`
+`main`
 
 ## Last Session Summary
-**Date**: 2026-02-02
+**Date**: 2026-02-04
 
 ### Completed Work
 
-#### 1. Practice/Assessment Quiz Modes (Not Committed)
-- Added Quiz Mode selection to homepage (Practice vs Assessment)
-- Assessment mode: 50/50 fill-in-blank and writing questions only
-- Practice mode: Mix of all question types (MC 35%, T/F 15%, Fill-in 20%, Writing 30%)
-- Mode-aware styling: amber/orange theme for Assessment mode
-- Added warnings when fewer questions available than requested
-- New files:
-  - `src/lib/quiz-modes.ts` - Mode configuration and type distribution
+#### 1. Feature Flag Refactoring
+- Merged `STUDY_CODES` and `PROGRESS_TRACKING` flags into single `SHOW_STUDY_CODE` flag
+- Flag now only controls UI visibility (study code text, QR code)
+- Study code creation and progress tracking always run silently in background
+- Progress page and nav link always visible regardless of flag
 
-#### 2. Superuser Override Feature (Not Committed)
-- Hidden feature: add `?superuser=true` or `?superuser=false` to any URL
-- Override persists in sessionStorage until tab is closed
-- Re-checks superuser status on each question load
-- Designed for future migration to database storage
-- New files:
-  - `src/lib/superuser-override.ts` - Override utility module
-- Modified files:
-  - `src/app/quiz/[unitId]/page.tsx` - URL param detection, status re-check
-  - `src/app/api/evaluate-writing/route.ts` - Accept override parameter
-  - `src/lib/writing-questions.ts` - Pass override to API
-  - `src/hooks/useQuestionEvaluation.ts` - Pass override through hook
-  - `src/components/WritingQuestion/index.tsx` - Get override from sessionStorage
+**Behavior**:
+| Flag | Study code created | Quiz saves to DB | Code/QR visible | Progress visible |
+|------|-------------------|------------------|-----------------|------------------|
+| true | Yes | Yes | Yes | Yes |
+| false | Yes | Yes | No | Yes |
 
-#### 3. Tiered Evaluation for Fill-in-Blank (Committed: b05045d)
-- Fill-in-blank questions now use same 4-tier evaluation as writing questions
-- Added superuser metadata display showing evaluation tier, similarity scores
-- Improved logging in question generation and selection
+**Modified files**:
+- `src/lib/feature-flags.ts` - Replaced two flags with `SHOW_STUDY_CODE`
+- `src/app/page.tsx` - Always create study code, gate UI only
+- `src/app/progress/page.tsx` - Gate StudyCodeDisplay on new flag
+- `src/app/quiz/[unitId]/page.tsx` - Remove PROGRESS_TRACKING guard
+- `src/components/Navigation.tsx` - Always show progress link
+- `.env.local`, `.env.example` - Updated flag names
 
-#### 2. Meta-Question Cleanup (Committed: 2bef3b0)
-- Removed 31 meta-questions (learning philosophy, teacher info)
-- Added `isMetaQuestion()` runtime filter in question-loader.ts
-- Updated generation scripts to prevent future meta-questions
-- See META-QUESTION-CLEANUP.md for details
+#### 2. Database Schema Consolidation
+- Consolidated `supabase/schema.sql` with all migrations baked in
+- Removed duplicate/conflicting `create_writing_questions.sql` (JSONB version)
+- Kept `create_writing_questions_table.sql` (TEXT[] version matches app code)
+- Removed redundant `idx_study_codes_code` index (UNIQUE constraint already indexes)
+- Added `admin_label`, `is_superuser` columns to study_codes table
+- Removed `code_format` constraint (app validates, supports animal-based codes)
 
-#### 3. UI Refactoring (Committed)
-Unified fill-in-blank and writing question components:
+#### 3. Writing Questions Export Script
+- Created `supabase/export-writing-questions.mjs` - exports questions to SQL INSERT script
+- Created `supabase/seed-writing-questions.sql` - 50 questions from prod, ready to seed
+- Fixed SQL escaping for single quotes in TEXT[] arrays
 
-| Old Component | New Component | Changes |
-|---------------|---------------|---------|
-| `WritingAnswerInput` | `AnswerInput` | Added `variant` prop for single/multi-line |
-| `WritingQuestionDisplay` | `QuestionDisplay` | Accepts unified `Question` type |
-| `WritingQuestionHints` | `QuestionHints` | Simplified to `hints: string[]` |
-| `WritingEvaluationResult` | `EvaluationResultDisplay` | Handles both question types |
-| `WritingQuestionComponent` | `TypedAnswerQuestion` | Auto-selects variant by type |
-
-**Impact**:
-- Quiz page reduced by 124 lines (removed inline fill-in-blank code)
-- Both question types now share Submit button UI
-- Backward compatibility aliases exported for all renamed components
-- Local testing passed
+#### 4. Git/GitHub Cleanup
+- Removed `data/` directory contents from tracking (question bank JSON files)
+- Added `/data/*` and `!/data/DATA.md` to .gitignore
+- Added `/learnings/` to .gitignore (proprietary course materials)
+- Repo set to public for Vercel auto-deploy compatibility
 
 ## Uncommitted Changes
-- Quiz modes feature (Practice vs Assessment)
-- Superuser override feature (`?superuser=true/false`)
-- Question selection with type distribution
+- Feature flag refactoring (SHOW_STUDY_CODE)
+- Schema consolidation
+- .gitignore updates for learnings/
 
 ## Pending Items
 - [ ] Consider renaming component files (e.g., WritingAnswerInput.tsx → AnswerInput.tsx)
