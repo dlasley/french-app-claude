@@ -1,5 +1,7 @@
 # Progress Tracker
 
+> **Claude Directive**: Always update this file before making git commits. Include what was done in the session and clear the Uncommitted Changes section after committing.
+
 ## Current Branch
 `main`
 
@@ -47,10 +49,23 @@
 - Added `/learnings/` to .gitignore (proprietary course materials)
 - Repo set to public for Vercel auto-deploy compatibility
 
+#### 5. Bulk Student Deletion Feature
+- Added `deleteStudent()` and `deleteStudents()` functions to `src/lib/admin.ts`
+- Created reusable `src/components/ConfirmationModal.tsx` with danger variant
+- Added checkbox selection column to admin student table with select all
+- Added floating bulk action bar when students are selected
+- Added delete button to individual student detail view
+- Added DELETE RLS policy for `study_codes` table in schema.sql
+- **Note**: Must run this SQL in Supabase to enable deletions:
+  ```sql
+  CREATE POLICY "Anyone can delete study codes"
+    ON study_codes FOR DELETE
+    TO anon
+    USING (true);
+  ```
+
 ## Uncommitted Changes
-- Feature flag refactoring (SHOW_STUDY_CODE)
-- Schema consolidation
-- .gitignore updates for learnings/
+None - all changes committed and pushed.
 
 ## Pending Items
 - [ ] Consider renaming component files (e.g., WritingAnswerInput.tsx → AnswerInput.tsx)
@@ -76,7 +91,8 @@ Create a new user onboarding runthrough sequence.
 14. Add x second delay to moving to the next question to encnourage reading the feedback on wrong or poor answers. Especially text input answers.
 15. ✅ Remove the help text from the fill in blank questions, and maybe the written questions. Some of them explicitly give away the answers.
 16. ✅ Change db password in .env.local
-17. Some questions are in French, such as "Lequel de ces énoncés utilise correctement 'préférer'?"
+17. ❌ Some questions are in French, such as "Lequel de ces énoncés utilise correctement 'préférer'?"
+18. Use strong_topics view in My Progress and Admin screens: strong_topics and weak_topics are convenience views — they save the app from having to filter concept_mastery client-side. But since strong_topics isn't actually queried anywhere in the codebase, it could be removed without impact. Alternatively, you could query concept_mastery directly with a WHERE clause and drop both strong_topics and weak_topics.
 
 
 ---
