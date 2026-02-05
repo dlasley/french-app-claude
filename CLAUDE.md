@@ -18,7 +18,6 @@ The `Question` type (`src/types/index.ts`) supports:
 - `true-false` - Binary choice
 - `fill-in-blank` - Single-line typed answer
 - `writing` - Multi-line typed answer
-- `matching` - Pair matching
 
 ### Tiered Evaluation System
 For typed-answer questions (fill-in-blank, writing), evaluation follows this fallback chain:
@@ -55,6 +54,13 @@ npm run lint         # ESLint
 npm run generate-questions  # Generate questions via AI
 ```
 
+## Dev Server
+When starting the dev server, redirect output to a log file:
+```bash
+pkill -f "next dev" 2>/dev/null; npm run dev > /tmp/nextjs-dev.log 2>&1 &
+```
+View logs with: `tail -f /tmp/nextjs-dev.log`
+
 ## Important Directories
 ```
 src/
@@ -90,3 +96,28 @@ src/
 - Superuser mode shows evaluation metadata (tier used, similarity scores)
 - Test both question types use the same Submit button UI
 - Verify tiered evaluation fallback works (exact → fuzzy → API)
+
+## PROGRESS.md Maintenance
+
+This project uses PROGRESS.md to track session work and enable recovery from lost context.
+
+### Concrete Update Triggers
+Update PROGRESS.md immediately after ANY of these events:
+- **Completing code changes that touch 2+ files**
+- **Finishing a feature, fix, or discrete piece of work**
+- **Before switching to a different area of the codebase**
+- **Before responding to an unrelated question**
+- **Before commits** (and clear "Uncommitted Changes" after commit succeeds)
+
+### TodoWrite Convention
+When using TodoWrite for multi-step tasks, ALWAYS include as the final todo:
+```
+{ content: "Update PROGRESS.md", status: "pending", activeForm: "Updating PROGRESS.md" }
+```
+This creates a structural checkpoint that triggers documentation.
+
+### What to Update
+- **Last Session Summary** - What was done (be specific about files and changes)
+- **Uncommitted Changes** - Current working state
+- **Pending Items** - What's left to do
+- **Next Steps** - Recommendations for future sessions
