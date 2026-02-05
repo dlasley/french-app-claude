@@ -8,6 +8,7 @@
   - `regenerate.ts` — Full pipeline: PDF → Markdown → Topics → Questions
   - `generate-questions.ts` — Generate questions for a unit/topic
   - `suggest-unit-topics.ts` — Extract topics from markdown files
+  - `plan-generation.ts` — Analyze distribution and plan targeted generation
 - **Database**
   - `check-writing-questions.ts` — Inspect question counts and samples
   - `test-db-connection.ts` — Verify database connection and schema
@@ -112,6 +113,8 @@ Options:
   --topic <name>     Specific topic (optional, defaults to all)
   --difficulty <d>   beginner, intermediate, or advanced
   --type <t>         multiple-choice, true-false, fill-in-blank, or writing
+  --writing-type <w> Writing subtype: translation, conjugation, question_formation,
+                     sentence_building, or open_ended (requires --type writing)
   --count <n>        Number of questions per topic/difficulty
   --sync-db          Upload to Supabase after generation
 ```
@@ -120,6 +123,35 @@ Options:
 - Called by `regenerate.ts`
 - Uses `src/lib/learning-materials.ts` for content extraction
 - Uses `src/lib/topic-headings.ts` for topic-to-heading mapping
+
+---
+
+### plan-generation.ts (Pipeline)
+
+**Purpose:** Analyzes current question distribution and creates an execution plan to reach target distribution.
+
+**Usage:**
+```bash
+npx tsx scripts/plan-generation.ts [options]
+
+Options:
+  --execute           Execute the generation plan (prompts for confirmation)
+  --analyze-only      Only show distribution analysis, don't generate a plan
+  --target-writing <n> Target percentage for writing questions (default: 27)
+  --help, -h          Show this help message
+```
+
+**Features:**
+- Analyzes current distribution vs target percentages
+- Generates an efficient plan using topic compatibility knowledge
+- Estimates API calls and cost before execution
+- Outputs copy-paste commands for manual control
+- Optional `--execute` flag runs commands with confirmation prompts
+
+**Interrelationships:**
+- Calls `generate-questions.ts` for execution
+- Queries Supabase for current question counts
+- Uses built-in topic compatibility mapping to reduce drift waste
 
 ---
 
@@ -192,6 +224,17 @@ Shared utilities for topic processing:
 
 Used by: `suggest-unit-topics.ts`
 
+### lib/writing-type-inference.ts
+
+Pattern-based inference of writing question subtypes from question text:
+- `inferWritingType(text)` - Returns writing subtype based on keyword patterns
+- `isValidWritingType(type)` - Type guard for validation
+- `getValidatedWritingType(aiType, text)` - Validates AI response with fallback
+
+Writing types: `translation`, `conjugation`, `question_formation`, `sentence_building`, `open_ended`
+
+Used by: `generate-questions.ts`
+
 ### prompts/pdf-to-markdown.txt
 
 Prompt template for converting PDF content to well-structured markdown.
@@ -235,4 +278,31 @@ npx tsx scripts/check-writing-questions.ts --samples
 ### Generate Questions for One Topic
 ```bash
 npx tsx scripts/generate-questions.ts --unit unit-2 --topic "Numbers 20-100" --sync-db
+```
+
+### Generate Targeted Writing Questions
+```bash
+# Generate conjugation questions for verb-related topics
+npx tsx scripts/generate-questions.ts --type writing --writing-type conjugation --count 3 --sync-db
+
+# Generate question_formation for specific compatible topic
+npx tsx scripts/generate-questions.ts --type writing --writing-type question_formation \
+  --unit unit-3 --topic "Questions with est-ce que" --count 3 --sync-db
+```
+
+**Note:** Some topic/writing-type combinations have high "drift" (AI generates different
+types because the topic doesn't support the requested type). For best results, target
+writing types to compatible topics (e.g., conjugation → verb topics, question_formation
+→ "Questions with est-ce que").
+
+### Plan and Balance Distribution
+```bash
+# Analyze current distribution and see proposed plan
+npx tsx scripts/plan-generation.ts
+
+# Execute the plan (with confirmation prompt)
+npx tsx scripts/plan-generation.ts --execute
+
+# Just show analysis, no plan
+npx tsx scripts/plan-generation.ts --analyze-only
 ```
