@@ -40,17 +40,33 @@ async function checkQuestions() {
   console.log('🔍 Checking questions in database...\n');
 
   try {
-    // Get all questions
-    const { data: all, error: allError } = await supabase
-      .from('questions')
-      .select('id, unit_id, difficulty, type, writing_type, topic, question, correct_answer');
+    // Get all questions (paginated to bypass 1000 row limit)
+    const PAGE_SIZE = 1000;
+    let all: Question[] = [];
+    let page = 0;
+    let hasMore = true;
 
-    if (allError) {
-      console.error('❌ Error fetching questions:', allError);
-      return;
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('questions')
+        .select('id, unit_id, difficulty, type, writing_type, topic, question, correct_answer')
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (error) {
+        console.error('❌ Error fetching questions:', error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        all = all.concat(data as Question[]);
+        page++;
+        hasMore = data.length === PAGE_SIZE;
+      } else {
+        hasMore = false;
+      }
     }
 
-    if (!all || all.length === 0) {
+    if (all.length === 0) {
       console.log('⚠️  No questions found in database!');
       console.log('\nTo add questions, run:');
       console.log('  npx tsx scripts/generate-questions.ts --sync-db');

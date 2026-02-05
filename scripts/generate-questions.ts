@@ -29,6 +29,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { units } from '../src/lib/units';
 import { loadUnitMaterials, extractTopicContent } from '../src/lib/learning-materials';
+import { inferWritingType, WritingType } from './lib/writing-type-inference';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -54,6 +55,7 @@ interface CLIOptions {
   topic?: string;
   difficulty?: 'beginner' | 'intermediate' | 'advanced';
   questionType?: 'multiple-choice' | 'fill-in-blank' | 'true-false' | 'writing';
+  writingType?: WritingType;
   count: number;
   syncDb: boolean;
   dryRun: boolean;
@@ -95,6 +97,15 @@ function parseArgs(): CLIOptions {
         }
         options.questionType = typeVal as CLIOptions['questionType'];
         break;
+      case '--writing-type':
+        const wtVal = args[++i];
+        const validWritingTypes = ['translation', 'conjugation', 'question_formation', 'sentence_building', 'open_ended'];
+        if (!validWritingTypes.includes(wtVal)) {
+          console.error(`❌ --writing-type must be one of: ${validWritingTypes.join(', ')}`);
+          process.exit(1);
+        }
+        options.writingType = wtVal as WritingType;
+        break;
       case '--count':
         const countVal = parseInt(args[++i], 10);
         if (isNaN(countVal) || countVal < 1) {
@@ -122,6 +133,12 @@ function parseArgs(): CLIOptions {
     }
   }
 
+  // Validate --writing-type requires --type writing
+  if (options.writingType && options.questionType !== 'writing') {
+    console.error('❌ --writing-type requires --type writing');
+    process.exit(1);
+  }
+
   return options;
 }
 
@@ -136,6 +153,7 @@ Options:
   --topic <topic-name>    Generate for specific topic only
   --difficulty <level>    Generate for specific difficulty (beginner|intermediate|advanced)
   --type <question-type>  Generate only this type (multiple-choice|fill-in-blank|true-false|writing)
+  --writing-type <wtype>  Writing subtype (translation|conjugation|question_formation|sentence_building|open_ended)
   --count <n>             Questions per topic/difficulty (default: ${QUESTIONS_PER_TOPIC_PER_DIFFICULTY})
   --sync-db               Sync to database (with deduplication)
   --dry-run               Show what would be generated without actually generating
@@ -148,6 +166,7 @@ Examples:
   npx tsx scripts/generate-questions.ts --unit unit-3 --topic "Numbers 0-20"
   npx tsx scripts/generate-questions.ts --unit unit-2 --count 25   # More questions for broad topics
   npx tsx scripts/generate-questions.ts --type writing --sync-db   # Add only writing questions
+  npx tsx scripts/generate-questions.ts --type writing --writing-type conjugation --sync-db
   npx tsx scripts/generate-questions.ts --sync-db --dry-run
   `);
 }
@@ -238,7 +257,7 @@ async function syncToDatabase(
       type: q.type,
       options: isChoiceType ? q.options : null,
       acceptable_variations: isTypedType ? (q.options || []) : [],
-      writing_type: isWriting ? 'translation' : null,
+      writing_type: isWriting ? inferWritingType(q.question) : null,
       explanation: q.explanation,
       hints: [],
       requires_complete_sentence: false,
@@ -308,10 +327,12 @@ async function generateQuestionsForTopic(
   topic: string,
   difficulty: 'beginner' | 'intermediate' | 'advanced',
   numQuestions: number,
-  questionType?: 'multiple-choice' | 'fill-in-blank' | 'true-false' | 'writing'
+  questionType?: 'multiple-choice' | 'fill-in-blank' | 'true-false' | 'writing',
+  writingType?: WritingType
 ): Promise<Question[]> {
   const typeLabel = questionType ? ` ${questionType}` : '';
-  console.log(`  Generating ${numQuestions} ${difficulty}${typeLabel} questions for: ${topic}`);
+  const subtypeLabel = writingType ? ` (${writingType})` : '';
+  console.log(`  Generating ${numQuestions} ${difficulty}${typeLabel}${subtypeLabel} questions for: ${topic}`);
 
   try {
     const unitMaterials = loadUnitMaterials(unitId);
@@ -425,11 +446,26 @@ For true-false questions:
 
 For writing questions:
 - These are longer-form responses requiring full sentences or translations
-- Example: "Translate to French: 'I like to eat apples.'" → "J'aime manger des pommes."
-- Example: "Write a sentence using the verb 'parler' in the nous form."
 - correctAnswer should be the expected response (accept reasonable variations)
 - No options array needed
-- Good for: translations, sentence construction, conjugation in context
+${writingType ? `
+IMPORTANT: Create ONLY "${writingType}" type writing questions:
+${writingType === 'translation' ? `- Translation: "Translate to French: '...'"
+- Example: "Translate to French: 'I like to eat apples.'" → "J'aime manger des pommes."
+- All answers must be in French` : ''}
+${writingType === 'conjugation' ? `- Conjugation: Ask students to conjugate verbs in specific forms
+- Example: "Conjugate the verb 'parler' in the present tense for all six subject pronouns."
+- Example: "Write the 'nous' form of 'danser' in a complete sentence."` : ''}
+${writingType === 'question_formation' ? `- Question Formation: Ask students to form questions using French structures
+- Example: "Write a question asking your friend what they like to do, using 'est-ce que'."
+- Example: "Create a question using inversion to ask 'Do you speak French?'"` : ''}
+${writingType === 'sentence_building' ? `- Sentence Building: Ask students to construct sentences using given elements
+- Example: "Write a sentence using the words: je, aimer, danser"
+- Example: "Combine these two sentences using 'qui': 'J'ai un ami. L'ami parle français.'"` : ''}
+${writingType === 'open_ended' ? `- Open-ended: Creative writing, dialogues, descriptions
+- Example: "Write a short dialogue between two people meeting for the first time."
+- Example: "Describe your classroom in 3-4 sentences using classroom vocabulary."` : ''}
+` : `- Good for: translations, sentence construction, conjugation in context`}
 
 Return ONLY the JSON, no additional text.`,
         },
@@ -481,6 +517,19 @@ Return ONLY the JSON, no additional text.`,
       const typeDrift = beforeTypeFilter - validQuestions.length;
       if (typeDrift > 0) {
         console.log(`    ⚠️  Filtered out ${typeDrift} question(s) with wrong type (type drift)`);
+      }
+    }
+
+    // Enforce writing type constraint when --writing-type flag is used
+    if (writingType) {
+      const beforeWritingFilter = validQuestions.length;
+      validQuestions = validQuestions.filter(q => {
+        const inferredType = inferWritingType(q.question);
+        return inferredType === writingType;
+      });
+      const writingDrift = beforeWritingFilter - validQuestions.length;
+      if (writingDrift > 0) {
+        console.log(`    ⚠️  Filtered out ${writingDrift} question(s) with wrong writing type (writing type drift)`);
       }
     }
 
@@ -572,7 +621,8 @@ async function generateAllQuestions(options: CLIOptions) {
           topic,
           difficulty,
           options.count,
-          options.questionType
+          options.questionType,
+          options.writingType
         );
 
         if (questions.length > 0) {

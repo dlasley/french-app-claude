@@ -8,6 +8,115 @@
 
 ### Completed Work (This Session)
 
+#### 5. Added --writing-type Flag for Targeted Generation
+Added `--writing-type` flag to generate specific writing subtypes, enabling targeted generation to improve pedagogical balance.
+
+**Usage**:
+```bash
+npx tsx scripts/generate-questions.ts --type writing --writing-type conjugation --sync-db
+npx tsx scripts/generate-questions.ts --type writing --writing-type sentence_building --count 5 --sync-db
+```
+
+**Changes**:
+- Added `writingType` to CLIOptions interface
+- Added `--writing-type` flag with validation (requires `--type writing`)
+- Prompt includes subtype-specific examples when flag is used
+- Post-generation filtering removes questions with wrong inferred writing type
+
+**Valid writing types**: translation, conjugation, question_formation, sentence_building, open_ended
+
+---
+
+#### 7. Question Distribution Planner (plan-generation.ts)
+Created new CLI tool that analyzes current distribution and generates an execution plan to reach target distribution.
+
+**New File**: `scripts/plan-generation.ts`
+
+**Features**:
+- Analyzes current vs target distribution for question types and writing subtypes
+- Uses topic compatibility mapping to estimate efficiency (reduces drift waste)
+- Generates commands for each generation step with cost estimates
+- Optional `--execute` flag runs the plan with confirmation prompts
+- Outputs copy-paste commands for manual control
+
+**Usage**:
+```bash
+npx tsx scripts/plan-generation.ts              # Show analysis and plan
+npx tsx scripts/plan-generation.ts --execute    # Execute the plan
+npx tsx scripts/plan-generation.ts --analyze-only
+```
+
+**Topic Compatibility Mapping** (built-in):
+| Writing Type | Compatible Topics | Est. Drift |
+|--------------|-------------------|------------|
+| conjugation | -ER Verbs, Avoir, Être, préférer | 30% |
+| question_formation | est-ce que, Conversation, Tu vs Vous | 35% |
+| sentence_building | All topics | 20% |
+| translation | All topics | 10% |
+| open_ended | All topics | 50% |
+
+---
+
+#### 6. Targeted Writing Type Generation & Distribution Analysis
+Ran targeted generation to improve writing subtype distribution, analyzed drift performance.
+
+**Conjugation Generation** (all topics):
+- 114 topic/difficulty combos processed
+- 70 questions generated (after filtering)
+- ~69% drift rate (topics like Numbers, Greetings don't support conjugation)
+- Drift is expected behavior - AI correctly refuses to generate nonsensical questions
+
+**Question Formation Generation** (targeted topics only):
+- 4 compatible topics targeted: "Questions with est-ce que", "Basic Conversation Phrases", "Tu vs. Vous", "Classroom Expressions"
+- 21 questions generated
+- ~42% average drift (0% on "Questions with est-ce que")
+
+**Updated Distribution** (1500 total questions, 406 writing):
+| Type | Before | After | Target | Status |
+|------|--------|-------|--------|--------|
+| translation | 167 (53%) | 167 (41%) | 35% | 6% over |
+| sentence_building | 94 (30%) | 94 (23%) | 25% | ✓ Close |
+| conjugation | 8 (3%) | 78 (19%) | 18% | ✓ On target |
+| question_formation | 19 (6%) | 40 (10%) | 12% | ✓ Improved |
+| open_ended | 27 (9%) | 27 (7%) | 10% | 3% under |
+
+**Key Insight**: Writing type drift is a quality filter, not a bug. The AI sensibly refuses to generate conjugation questions for vocabulary topics. For targeted generation, pre-filter to compatible topics for efficiency.
+
+**Documentation**: Updated `scripts/README.md` with `--writing-type` flag documentation and targeted generation examples.
+
+---
+
+#### 4. Writing Type Inference System
+Implemented pattern-based type inference for writing questions. Previously all 315 writing questions were hardcoded as `translation` type. Now types are inferred from question text.
+
+**New Files**:
+- `scripts/lib/writing-type-inference.ts` - Pattern matching engine for 5 writing types
+
+**Modified Files**:
+- `scripts/generate-questions.ts` - Now uses `inferWritingType()` instead of hardcoded `'translation'`
+
+**Writing Types**:
+| Type | Pattern Keywords |
+|------|------------------|
+| `translation` | translate, en français, in french |
+| `conjugation` | conjugate, verb form, present tense |
+| `question_formation` | write a question, create a question |
+| `sentence_building` | write sentence, combine sentences, rewrite |
+| `open_ended` | (fallback for dialogue, describe, creative) |
+
+**Distribution Change** (after migration):
+| Type | Before | After |
+|------|--------|-------|
+| translation | 100% (315) | 53% (167) |
+| sentence_building | 0% | 30% (94) |
+| open_ended | 0% | 9% (27) |
+| question_formation | 0% | 6% (19) |
+| conjugation | 0% | 3% (8) |
+
+**Pedagogical Note**: Distribution still translation-heavy. Future question generation should target better balance: ~35% translation, ~25% sentence_building, ~18% conjugation, ~12% question_formation, ~10% open_ended.
+
+---
+
 #### 3. Added --type Flag to generate-questions.ts
 Added ability to generate only a specific question type, enabling targeted addition of writing questions without regenerating everything.
 
@@ -360,26 +469,18 @@ Created `~/.claude/CLAUDE.md` with directives that apply to all projects:
 - Update rules (before commits, during long sessions)
 
 ## Uncommitted Changes
-- `supabase/schema.sql` - Unified `questions` table (replaces `writing_questions`)
-- `supabase/migrations/create_unified_questions_table.sql` - Migration for unified schema
-- `supabase/migrations/add_regeneration_columns.sql` - Regeneration columns migration
-- `scripts/convert-pdfs.ts` - PDF to markdown conversion script
-- `scripts/prompts/pdf-to-markdown.txt` - Conversion prompt template
-- `scripts/suggest-unit-topics.ts` - Topic extraction with label suggestion
-- `scripts/extract-topics.ts` - Lower-level topic extraction
-- `scripts/lib/topic-utils.ts` - Topic comparison utilities
-- `scripts/generate-questions.ts` - Enhanced with CLI params, deduplication, DB sync, **now includes 'writing' question type**
-- `scripts/regenerate.ts` - Pipeline controller with smart file discovery (multi-PDF, introduction handling)
-- `src/types/index.ts` - Added `label` field to Unit interface
-- `src/lib/units.ts` - Added labels to existing units
-- `src/app/page.tsx` - Unit dropdown shows labels
-- `learnings/test-conversions/unit-2-test.md` - Sample conversion output
-- `CLAUDE.md` - PROGRESS.md directives with concrete triggers and TodoWrite convention
-- `~/.claude/CLAUDE.md` - Global Claude Code instructions (PROGRESS.md directives)
-- `docs/TEST_PLAN_QUESTION_GENERATION.md` - Test plan for regeneration pipeline
+- `scripts/plan-generation.ts` - Distribution planner with topic compatibility mapping (NEW)
+- `scripts/lib/writing-type-inference.ts` - Pattern-based writing type inference (NEW)
+- `scripts/generate-questions.ts` - Writing type inference + `--writing-type` flag for targeted generation
+- `scripts/check-writing-questions.ts` - Pagination fix for Supabase 1000 row limit
+- `scripts/README.md` - Added `--writing-type` and `plan-generation.ts` documentation
+- `CLAUDE.md` - Updated conventions
 
 ## Pending Items
+- [x] **Run writing type migration** - Updated 148 questions with correct writing_type values
+- [x] **Improve writing type distribution** - Generated 70 conjugation + 21 question_formation questions. Distribution now within ~6% of all targets
 - [x] **Add writing questions** - Generated 339 questions (315 writing, 22 fill-in-blank, 2 MCQ due to AI type drift)
+- [x] **Topic compatibility mapping** - Built into `plan-generation.ts`. Pre-filters topics by writing type compatibility to reduce drift waste.
 - [ ] **Address question type distribution drift** - During full generation (no --type flag), AI favors MCQ/fill-in-blank over T/F (~13% T/F vs expected 25%). Options: (1) add target proportions to prompt, (2) add --balanced flag that runs each type separately, or (3) accept natural distribution
 - [ ] Consider renaming component files (e.g., WritingAnswerInput.tsx → AnswerInput.tsx)
 - [x] Implement `scripts/convert-pdfs.ts` for PDF → Markdown conversion
@@ -407,9 +508,10 @@ The regeneration pipeline is ready. User's planned workflow:
 4. Run `npx tsx scripts/regenerate.ts --all --auto --sync-db`
 
 ## Known Issues
-- ~~Database has 0 writing questions~~ **RESOLVED**: Now has 315 writing questions (22% of 1409 total)
+- ~~Database has 0 writing questions~~ **RESOLVED**: Now has 406 writing questions (27% of 1500 total)
 - ~~`--type` flag in generate-questions.ts has ~7% type drift~~ **FIXED**: Added post-generation type filtering to enforce constraint
 - ~~Topic content extraction returns wrong content~~ **FIXED**: Added topic aliases for English→French heading matching in `extractTopicContent()`, removed dangerous fallback that returned first 3000 chars of unrelated content
+- **Writing type drift is expected** - When using `--writing-type`, topics that don't support the requested type have high drift (e.g., 69% for conjugation across all topics). This is correct behavior - use topic-aware targeting for efficiency.
 
 ## Next Steps (Suggested)
 1. ✅ Consider if results page needs similar unification for metadata display
