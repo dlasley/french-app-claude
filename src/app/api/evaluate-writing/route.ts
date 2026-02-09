@@ -373,7 +373,7 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no code 
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-5-20251101', // Best model for accuracy
+      model: 'claude-opus-4-6', // Best model for accuracy
       max_tokens: 1024,
       temperature: 0.3, // Lower temperature for consistent evaluation
       messages: [{
