@@ -1,29 +1,27 @@
 /**
  * Supabase Client Configuration
- * Handles database connection with feature flag support
+ * Connects to Supabase when URL and key are configured
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { FEATURES } from './feature-flags';
 
 // Supabase configuration from environment variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Create Supabase client (only if DB_SYNC is enabled)
-export const supabase = FEATURES.DB_SYNC && supabaseUrl && supabaseAnonKey
+// Create Supabase client when credentials are configured
+export const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
 // Helper to check if Supabase is available
 export const isSupabaseAvailable = () => {
-  return supabase !== null && FEATURES.DB_SYNC;
+  return supabase !== null;
 };
 
 // Log Supabase status in development
 if (process.env.NODE_ENV === 'development') {
   console.log('🗄️  Supabase Status:', {
-    enabled: FEATURES.DB_SYNC,
     configured: !!supabaseUrl && !!supabaseAnonKey,
     available: isSupabaseAvailable(),
   });

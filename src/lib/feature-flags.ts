@@ -10,9 +10,6 @@ export const FEATURES = {
   // Admin Dashboard
   ADMIN_PANEL: process.env.NEXT_PUBLIC_ENABLE_ADMIN_PANEL === 'true',
 
-  // Database Sync (Supabase)
-  DB_SYNC: process.env.NEXT_PUBLIC_ENABLE_DB_SYNC === 'true',
-
   /**
    * Skip fuzzy logic evaluation (applies to both 'writing' and 'fill-in-blank' questions)
    * - When false: Use fuzzy logic first, then Semantic API only when confidence is low
