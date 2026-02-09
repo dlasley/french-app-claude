@@ -18,6 +18,7 @@ export interface StudentSummary {
   code: string;
   displayName: string | null;
   adminLabel: string | null;
+  wrongAnswerCountdown: number | null;
   totalQuizzes: number;
   totalQuestions: number;
   correctAnswers: number;
@@ -108,6 +109,7 @@ export async function getAllStudents(sortBy: 'lastActive' | 'accuracy' | 'quizze
         code: sc.code,
         displayName: sc.display_name,
         adminLabel: sc.admin_label,
+        wrongAnswerCountdown: sc.wrong_answer_countdown ?? null,
         totalQuizzes: sc.total_quizzes || 0,
         totalQuestions: sc.total_questions || 0,
         correctAnswers: sc.correct_answers || 0,
@@ -153,6 +155,7 @@ export async function searchStudents(query: string): Promise<StudentSummary[]> {
       code: sc.code,
       displayName: sc.display_name,
       adminLabel: sc.admin_label,
+      wrongAnswerCountdown: sc.wrong_answer_countdown ?? null,
       totalQuizzes: sc.total_quizzes || 0,
       totalQuestions: sc.total_questions || 0,
       correctAnswers: sc.correct_answers || 0,
@@ -195,6 +198,7 @@ export async function getStudentProgress(code: string): Promise<StudentDetailedP
       code: studyCodeData.code,
       displayName: studyCodeData.display_name,
       adminLabel: studyCodeData.admin_label,
+      wrongAnswerCountdown: studyCodeData.wrong_answer_countdown ?? null,
       totalQuizzes: studyCodeData.total_quizzes || 0,
       totalQuestions: studyCodeData.total_questions || 0,
       correctAnswers: studyCodeData.correct_answers || 0,
@@ -258,6 +262,31 @@ export async function updateAdminLabel(code: string, adminLabel: string): Promis
     return true;
   } catch (error) {
     console.error('Failed to update admin label:', error);
+    return false;
+  }
+}
+
+/**
+ * Update wrong answer countdown override for a study code
+ * Pass null to reset to the global default
+ */
+export async function updateCountdownOverride(code: string, seconds: number | null): Promise<boolean> {
+  if (!isSupabaseAvailable()) return false;
+
+  try {
+    const { error } = await supabase!
+      .from('study_codes')
+      .update({ wrong_answer_countdown: seconds })
+      .eq('code', code);
+
+    if (error) {
+      console.error('Error updating countdown override:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Failed to update countdown override:', error);
     return false;
   }
 }

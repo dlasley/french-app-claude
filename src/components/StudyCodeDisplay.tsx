@@ -11,12 +11,16 @@ import { QRCodeSVG } from 'qrcode.react';
 interface StudyCodeDisplayProps {
   studyCode: string;
   showQR?: boolean;
+  showActions?: boolean;
+  onSwitchCode?: () => void;
   size?: 'small' | 'medium' | 'large';
 }
 
 export function StudyCodeDisplay({
   studyCode,
   showQR = true,
+  showActions = true,
+  onSwitchCode,
   size = 'medium'
 }: StudyCodeDisplayProps) {
   const [showCopied, setShowCopied] = useState(false);
@@ -86,23 +90,33 @@ export function StudyCodeDisplay({
           <p className="text-sm text-gray-600 dark:text-gray-300 mt-3">
             Use this code to access your progress from any device.
           </p>
-
-          <div className="flex gap-2 mt-4">
+          {onSwitchCode && (
             <button
-              onClick={handleCopyCode}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium text-sm"
+              onClick={onSwitchCode}
+              className="block text-sm text-gray-500 dark:text-gray-400 hover:underline mt-3"
             >
-              {showCopied ? '✓ Copied!' : '📋 Copy Code'}
+              Enter a different code
             </button>
-            {showQR && (
+          )}
+
+          {showActions && (
+            <div className="flex gap-2 mt-4">
               <button
-                onClick={() => setShowQRExpanded(!showQRExpanded)}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium text-sm"
+                onClick={handleCopyCode}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium text-sm"
               >
-                {showQRExpanded ? '📱 Hide QR' : '📱 Show QR'}
+                {showCopied ? '✓ Copied!' : '📋 Copy Code'}
               </button>
-            )}
-          </div>
+              {showQR && (
+                <button
+                  onClick={() => setShowQRExpanded(!showQRExpanded)}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium text-sm"
+                >
+                  {showQRExpanded ? '📱 Hide QR' : '📱 Show QR'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* QR Code - Always visible on desktop, toggleable on mobile */}
@@ -117,12 +131,14 @@ export function StudyCodeDisplay({
                 includeMargin={true}
               />
             </div>
-            <button
-              onClick={handleDownloadQR}
-              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-            >
-              Download QR Code
-            </button>
+            {showActions && (
+              <button
+                onClick={handleDownloadQR}
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                Download QR Code
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -142,12 +158,14 @@ export function StudyCodeDisplay({
           <p className="text-xs text-gray-600 dark:text-gray-400 text-center">
             Scan with your phone to access your progress
           </p>
-          <button
-            onClick={handleDownloadQR}
-            className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-          >
-            Download QR Code
-          </button>
+          {showActions && (
+            <button
+              onClick={handleDownloadQR}
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              Download QR Code
+            </button>
+          )}
         </div>
       )}
     </div>

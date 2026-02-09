@@ -78,11 +78,39 @@ export function storeStudyCode(code: string): void {
 }
 
 /**
- * Clear study code from localStorage
+ * Clear study code and skip-choice flag from localStorage
  */
 export function clearStudyCode(): void {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(STUDY_CODE_KEY);
+  localStorage.removeItem('french_skip_choice');
+}
+
+/**
+ * Normalize a study code for comparison (trim + lowercase)
+ */
+export function normalizeStudyCode(code: string): string {
+  return code.trim().toLowerCase();
+}
+
+/**
+ * Check if the user has opted to skip the choice screen
+ */
+export function getSkipChoice(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem('french_skip_choice') === 'true';
+}
+
+/**
+ * Set or clear the skip-choice preference
+ */
+export function setSkipChoice(skip: boolean): void {
+  if (typeof window === 'undefined') return;
+  if (skip) {
+    localStorage.setItem('french_skip_choice', 'true');
+  } else {
+    localStorage.removeItem('french_skip_choice');
+  }
 }
 
 /**

@@ -39,4 +39,14 @@ next-env.d.ts
 *.env*.local
 
 # learnings (proprietary course materials)
-/learnings/
+/learnings/PROGRESS.md
+
+# session work tracker (local only)
+/PROGRESS.md
+
+# supabase migrations (schema.sql is canonical)
+/supabase/migrations/
+
+# generation artifacts
+generation.log
+generation.pid

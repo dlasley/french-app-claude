@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { FEATURES, getFuzzyLogicThreshold } from '@/lib/feature-flags';
+import { FEATURES, getFuzzyLogicThreshold, CORRECTNESS_THRESHOLDS } from '@/lib/feature-flags';
 import { fuzzyEvaluateAnswer, calculateSimilarity } from '@/lib/writing-questions';
 import { supabase, isSupabaseAvailable } from '@/lib/supabase';
 
@@ -357,7 +357,7 @@ Also provide a confidence score (0-100) indicating how certain you are about thi
 
 Return ONLY a valid JSON object with this exact structure (no markdown, no code blocks):
 {
-  "isCorrect": boolean (true if score >= 70),
+  "isCorrect": boolean (true if score >= ${CORRECTNESS_THRESHOLDS.CLAUDE_API_PASS}),
   "score": number (0-100),
   "hasCorrectAccents": boolean,
   "feedback": "Brief, encouraging feedback in English (2-3 sentences)",

@@ -15,15 +15,18 @@ export async function GET(request: NextRequest) {
   try {
     const { data, error } = await supabase!
       .from('study_codes')
-      .select('is_superuser')
+      .select('is_superuser, wrong_answer_countdown')
       .eq('id', studyCodeId)
       .single();
 
     if (error || !data) {
-      return NextResponse.json({ isSuperuser: false });
+      return NextResponse.json({ isSuperuser: false, wrongAnswerCountdown: null });
     }
 
-    return NextResponse.json({ isSuperuser: data.is_superuser === true });
+    return NextResponse.json({
+      isSuperuser: data.is_superuser === true,
+      wrongAnswerCountdown: data.wrong_answer_countdown ?? null,
+    });
   } catch (error) {
     console.error('Error checking superuser status:', error);
     return NextResponse.json({ isSuperuser: false });

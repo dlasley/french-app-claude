@@ -21,6 +21,9 @@ export const FEATURES = {
   SKIP_FUZZY_LOGIC: false,
   // To use env var instead (server-only, runtime configurable on restart):
   // SKIP_FUZZY_LOGIC: process.env.SKIP_FUZZY_LOGIC === 'true',
+
+  // Seconds to disable "Next Question" button after a wrong answer (0 = no countdown)
+  WRONG_ANSWER_COUNTDOWN_SECONDS: 20,
 } as const;
 
 /**
@@ -45,6 +48,8 @@ export const CORRECTNESS_THRESHOLDS = {
   /** 85-94% similarity = correct only for beginners */
   BEGINNER_PASS: 85,
   /** Below 85% = incorrect (even if above fuzzy logic threshold) */
+  /** Claude API: score >= this value = correct */
+  CLAUDE_API_PASS: 70,
 } as const;
 
 export type DifficultyLevel = keyof typeof FUZZY_LOGIC_THRESHOLDS;

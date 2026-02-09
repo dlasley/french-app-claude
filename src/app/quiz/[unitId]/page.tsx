@@ -1,12 +1,13 @@
 'use client';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Question } from '@/types';
 import { units } from '@/lib/units';
 import { getStoredStudyCode, getStudyCodeId } from '@/lib/study-codes';
 import { saveQuizResults, saveQuizResultsLocally } from '@/lib/progress-tracking';
 import { QuizMode, getModeConfig } from '@/lib/quiz-modes';
+import { FEATURES } from '@/lib/feature-flags';
 import {
   getSuperuserOverride,
   initGlobalSuperuserHelper,
@@ -53,6 +54,47 @@ export default function QuizPage() {
   const [isSuperuser, setIsSuperuser] = useState(false);
   const [studyCodeUuid, setStudyCodeUuid] = useState<string | null>(null);
   const [activeResultsTab, setActiveResultsTab] = useState<'answers' | 'studyGuide'>('answers');
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [countdownOverride, setCountdownOverride] = useState<number | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Start countdown when a wrong answer explanation is shown
+  useEffect(() => {
+    // Clear any existing countdown
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setCountdown(null);
+
+    const question = questions[currentQuestionIndex];
+    if (!showExplanation || !question) return;
+
+    const seconds = countdownOverride ?? FEATURES.WRONG_ANSWER_COUNTDOWN_SECONDS;
+    if (seconds <= 0) return;
+
+    const isWrong = evaluationResults[question.id]?.isCorrect === false;
+    if (!isWrong) return;
+
+    setCountdown(seconds);
+    countdownRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          if (countdownRef.current) clearInterval(countdownRef.current);
+          countdownRef.current = null;
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
+    };
+  }, [showExplanation, questions, currentQuestionIndex, evaluationResults, countdownOverride]);
 
   // Compute effective superuser status - sessionStorage override ALWAYS takes precedence
   // This ensures the override is respected immediately, even before React state updates
@@ -72,7 +114,8 @@ export default function QuizPage() {
       if (response.ok) {
         const data = await response.json();
         setIsSuperuser(data.isSuperuser === true);
-        console.log(`🔬 Superuser status from DB: ${data.isSuperuser ? 'YES' : 'NO'}`);
+        setCountdownOverride(data.wrongAnswerCountdown ?? null);
+        console.log(`🔬 Superuser status from DB: ${data.isSuperuser ? 'YES' : 'NO'}, countdown override: ${data.wrongAnswerCountdown ?? 'default'}`);
       }
     } catch (error) {
       console.error('Error checking superuser status:', error);
@@ -903,9 +946,11 @@ export default function QuizPage() {
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
               <button
                 onClick={handleNext}
-                className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-semibold"
+                disabled={countdown !== null}
+                className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors font-semibold"
               >
                 {currentQuestionIndex === questions.length - 1 ? 'Finish Quiz' : 'Next Question →'}
+                {countdown !== null && ` (${countdown}s)`}
               </button>
             </div>
           )}
@@ -1181,9 +1226,11 @@ export default function QuizPage() {
                 )}
                 <button
                   onClick={handleNext}
-                  className="w-full py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition-colors"
+                  disabled={countdown !== null}
+                  className="w-full py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors"
                 >
                   {currentQuestionIndex === questions.length - 1 ? 'Finish Quiz' : 'Next Question →'}
+                  {countdown !== null && ` (${countdown}s)`}
                 </button>
               </div>
             )}

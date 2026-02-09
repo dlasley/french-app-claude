@@ -41,6 +41,7 @@ export interface StudyCode {
   total_quizzes: number;
   total_questions: number;
   correct_answers: number;
+  wrong_answer_countdown: number | null;
 }
 
 export interface QuizHistory {

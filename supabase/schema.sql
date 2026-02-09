@@ -17,7 +17,8 @@ CREATE TABLE study_codes (
   last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   total_quizzes INTEGER DEFAULT 0,
   total_questions INTEGER DEFAULT 0,
-  correct_answers INTEGER DEFAULT 0
+  correct_answers INTEGER DEFAULT 0,
+  wrong_answer_countdown INTEGER DEFAULT NULL -- Per-user override for wrong answer countdown (NULL = global default)
   -- No code_format constraint: validation happens in application layer
   -- Supports both old "study-xxxxxxxx" and new "adjective animal" formats
 );
@@ -308,7 +309,8 @@ COMMENT ON VIEW weak_topics IS 'Topics where student needs help';
 COMMENT ON VIEW strong_topics IS 'Topics where student excels';
 COMMENT ON COLUMN study_codes.admin_label IS 'Optional label/identifier that admin can assign to a student. Not visible to students.';
 COMMENT ON COLUMN study_codes.is_superuser IS 'When true, user receives detailed evaluation metadata including confidence scores, similarity metrics, and which evaluation tier was used';
-COMMENT ON COLUMN writing_questions.requires_complete_sentence IS 'Advanced questions requiring full sentence responses';
-COMMENT ON COLUMN writing_questions.content_hash IS 'MD5 hash of normalized question content for deduplication during regeneration';
-COMMENT ON COLUMN writing_questions.batch_id IS 'Identifies which generation batch created this question (e.g., 2026-02-04_unit3)';
-COMMENT ON COLUMN writing_questions.source_file IS 'Path to the markdown learning file used to generate this question';
+COMMENT ON COLUMN study_codes.wrong_answer_countdown IS 'Per-user override for wrong answer countdown seconds. NULL = use global default from FEATURES.WRONG_ANSWER_COUNTDOWN_SECONDS';
+COMMENT ON COLUMN questions.requires_complete_sentence IS 'Advanced questions requiring full sentence responses';
+COMMENT ON COLUMN questions.content_hash IS 'MD5 hash of normalized question content for deduplication during regeneration';
+COMMENT ON COLUMN questions.batch_id IS 'Identifies which generation batch created this question (e.g., 2026-02-04_unit3)';
+COMMENT ON COLUMN questions.source_file IS 'Path to the markdown learning file used to generate this question';

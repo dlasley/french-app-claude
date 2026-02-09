@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated, clearAuthSession } from '@/lib/auth';
+import { FEATURES } from '@/lib/feature-flags';
 import {
   getClasswideStats,
   getAllStudents,
@@ -10,6 +11,7 @@ import {
   getStudentProgress,
   exportStudentsToCSV,
   updateAdminLabel,
+  updateCountdownOverride,
   deleteStudent,
   deleteStudents,
   type ClasswideStats,
@@ -43,6 +45,8 @@ export default function AdminPage() {
   const [showStudentDetail, setShowStudentDetail] = useState(false);
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelValue, setLabelValue] = useState('');
+  const [editingCountdown, setEditingCountdown] = useState(false);
+  const [countdownValue, setCountdownValue] = useState('');
 
   // Selection and deletion state
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
@@ -135,6 +139,30 @@ export default function AdminPage() {
       }
     } catch (error) {
       console.error('Error updating admin label:', error);
+    }
+  };
+
+  // Handle countdown override update
+  const handleUpdateCountdown = async (value: number | null) => {
+    if (!selectedStudent) return;
+
+    try {
+      const success = await updateCountdownOverride(selectedStudent.studyCode.code, value);
+      if (success) {
+        setSelectedStudent({
+          ...selectedStudent,
+          studyCode: {
+            ...selectedStudent.studyCode,
+            wrongAnswerCountdown: value,
+          },
+        });
+        setEditingCountdown(false);
+        const updatedStudents = await getAllStudents(sortBy);
+        setStudents(updatedStudents);
+        setFilteredStudents(searchQuery ? await searchStudents(searchQuery) : updatedStudents);
+      }
+    } catch (error) {
+      console.error('Error updating countdown override:', error);
     }
   };
 
@@ -295,6 +323,71 @@ export default function AdminPage() {
                       className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
                     >
                       {selectedStudent.studyCode.adminLabel ? 'Edit' : 'Add'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Wrong Answer Countdown Override */}
+              <div className="mt-4">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                  Wrong Answer Countdown:
+                </label>
+                {editingCountdown ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={countdownValue}
+                      onChange={(e) => setCountdownValue(e.target.value)}
+                      placeholder="Seconds"
+                      className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:border-indigo-500 focus:outline-none dark:bg-gray-700 dark:text-white"
+                    />
+                    <span className="text-sm text-gray-500 dark:text-gray-400">seconds</span>
+                    <button
+                      onClick={() => {
+                        const parsed = parseInt(countdownValue, 10);
+                        if (!isNaN(parsed) && parsed >= 0) {
+                          handleUpdateCountdown(parsed);
+                        }
+                      }}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => handleUpdateCountdown(null)}
+                      className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium"
+                    >
+                      Reset to Default
+                    </button>
+                    <button
+                      onClick={() => setEditingCountdown(false)}
+                      className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-900 dark:text-white rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-900 dark:text-white font-medium">
+                      {selectedStudent.studyCode.wrongAnswerCountdown !== null
+                        ? `${selectedStudent.studyCode.wrongAnswerCountdown}s`
+                        : <span className="text-gray-400 italic">Default ({FEATURES.WRONG_ANSWER_COUNTDOWN_SECONDS}s)</span>
+                      }
+                    </span>
+                    <button
+                      onClick={() => {
+                        setCountdownValue(
+                          selectedStudent.studyCode.wrongAnswerCountdown !== null
+                            ? String(selectedStudent.studyCode.wrongAnswerCountdown)
+                            : '10'
+                        );
+                        setEditingCountdown(true);
+                      }}
+                      className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      Edit
                     </button>
                   </div>
                 )}

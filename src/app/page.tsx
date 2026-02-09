@@ -1,37 +1,107 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { units } from '@/lib/units';
-import { FEATURES } from '@/lib/feature-flags';
-import { getOrCreateStudyCode, getStoredStudyCode } from '@/lib/study-codes';
+import {
+  getStoredStudyCode,
+  storeStudyCode,
+  clearStudyCode,
+  verifyStudyCode,
+  normalizeStudyCode,
+  getSkipChoice,
+  setSkipChoice,
+} from '@/lib/study-codes';
 import { StudyCodeDisplay } from '@/components/StudyCodeDisplay';
+import { StudyCodeEntry } from '@/components/StudyCodeEntry';
 import { QUIZ_MODES, QuizMode, getDefaultMode } from '@/lib/quiz-modes';
 
+type Phase = 'resolving' | 'choosing' | 'ready';
+
 export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600" />
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedUnit, setSelectedUnit] = useState<string>('all');
   const [numQuestions, setNumQuestions] = useState<number>(30);
   const [difficulty, setDifficulty] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate');
   const [quizMode, setQuizMode] = useState<QuizMode>(getDefaultMode());
   const [studyCode, setStudyCode] = useState<string | null>(null);
-  const [isLoadingCode, setIsLoadingCode] = useState(false);
+  const [phase, setPhase] = useState<Phase>('resolving');
+  const [existingCodeForSwap, setExistingCodeForSwap] = useState<string | null>(null);
+  const [pendingUrlCode, setPendingUrlCode] = useState<string | null>(null);
+  const hasResolved = useRef(false);
 
-  // Always create study code on mount (progress tracking runs silently)
+  // Resolve study code on mount: check URL param, localStorage, or show choice screen
   useEffect(() => {
-    const loadCode = async () => {
-      setIsLoadingCode(true);
-      try {
-        const code = await getOrCreateStudyCode();
-        setStudyCode(code);
-      } catch (error) {
-        console.error('Failed to load study code:', error);
-      } finally {
-        setIsLoadingCode(false);
+    if (hasResolved.current) return;
+    hasResolved.current = true;
+
+    const resolve = async () => {
+      const paramCode = searchParams.get('code');
+      const storedCode = getStoredStudyCode();
+      const skipChoice = getSkipChoice();
+
+      // 1. Handle ?code= URL parameter (from QR scan)
+      if (paramCode) {
+        const normalized = normalizeStudyCode(paramCode);
+        const isValid = await verifyStudyCode(normalized);
+
+        // Clean URL regardless
+        router.replace('/', { scroll: false });
+
+        if (isValid) {
+          if (storedCode && storedCode !== normalized) {
+            // Conflict: let StudyCodeEntry handle the swap warning
+            setExistingCodeForSwap(storedCode);
+            setPendingUrlCode(normalized);
+            setPhase('choosing');
+            return;
+          }
+          // No conflict - store and proceed
+          storeStudyCode(normalized);
+          setSkipChoice(skipChoice); // preserve existing preference
+          setStudyCode(normalized);
+
+          setPhase('ready');
+          return;
+        }
+        // Invalid QR code - fall through
       }
+
+      // 2. Check localStorage + skip preference
+      if (storedCode && skipChoice) {
+        const isValid = await verifyStudyCode(storedCode);
+        if (isValid) {
+          setStudyCode(storedCode);
+
+          setPhase('ready');
+          return;
+        }
+        // Stale code - clear everything
+        clearStudyCode();
+      }
+
+      // 3. Has a stored code but no skip preference, or no code at all
+      if (storedCode && !skipChoice) {
+        setExistingCodeForSwap(storedCode);
+      }
+      setPhase('choosing');
     };
-    loadCode();
-  }, []);
+
+    resolve();
+  }, [searchParams, router]);
 
   const handleStartPractice = () => {
     router.push(
@@ -44,6 +114,40 @@ export default function Home() {
 
   const selectedUnitData = units.find(u => u.id === selectedUnit);
 
+  // Phase: resolving - show loading spinner
+  if (phase === 'resolving') {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600" />
+      </div>
+    );
+  }
+
+  // Phase: choosing - show the entry/choice component
+  if (phase === 'choosing') {
+    return (
+      <div className="space-y-8">
+        <div className="text-center">
+          <h2 className="text-4xl font-bold text-gray-900 dark:text-white mb-3">
+            Practice French
+          </h2>
+          <p className="text-lg text-gray-600 dark:text-gray-300">
+            AI-generated questions from all your course materials
+          </p>
+        </div>
+        <StudyCodeEntry
+          onCodeEstablished={(code) => {
+            setStudyCode(code);
+            setPhase('ready');
+          }}
+          existingCode={existingCodeForSwap}
+          pendingCode={pendingUrlCode}
+        />
+      </div>
+    );
+  }
+
+  // Phase: ready - show study code + quiz configuration
   return (
     <div className="space-y-8">
       <div className="text-center">
@@ -55,29 +159,19 @@ export default function Home() {
         </p>
       </div>
 
-      {/* Study Code Card with QR (only shown when SHOW_STUDY_CODE is true) */}
-      {FEATURES.SHOW_STUDY_CODE && studyCode && !isLoadingCode && (
+      {/* Study Code Card with QR - always shown */}
+      {studyCode && (
         <div className="max-w-3xl mx-auto">
-          <StudyCodeDisplay studyCode={studyCode} size="medium" />
-        </div>
-      )}
-      {FEATURES.SHOW_STUDY_CODE && isLoadingCode && (
-        <div className="max-w-3xl mx-auto bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-gray-800 dark:to-gray-700 rounded-xl shadow-lg p-6 border-2 border-indigo-200 dark:border-indigo-800">
-          <p className="text-sm text-gray-600 dark:text-gray-300 text-center">
-            Generating your study code...
-          </p>
-        </div>
-      )}
-
-      {/* View Progress link (always visible) */}
-      {studyCode && !isLoadingCode && (
-        <div className="text-center">
-          <button
-            onClick={() => router.push('/progress')}
-            className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
-          >
-            View Progress →
-          </button>
+          <StudyCodeDisplay
+            studyCode={studyCode}
+            size="medium"
+            showActions={false}
+            onSwitchCode={() => {
+              setExistingCodeForSwap(studyCode);
+              setPendingUrlCode(null);
+              setPhase('choosing');
+            }}
+          />
         </div>
       )}
 
