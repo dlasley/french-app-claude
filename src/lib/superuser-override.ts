@@ -5,6 +5,7 @@
  *
  * Usage:
  * - Keyboard shortcut: Ctrl+Shift+S (or Cmd+Shift+S on Mac) to toggle
+ * - Triple-tap: Tap app title 3 times quickly (for mobile)
  * - Console: window.setSuperuser(true/false)
  * - Override persists in sessionStorage until tab is closed
  */
@@ -110,6 +111,33 @@ export function initSuperuserKeyboardShortcut(): () => void {
 
   // Return cleanup function
   return () => window.removeEventListener('keydown', handleKeydown);
+}
+
+/**
+ * Initialize triple-tap gesture for toggling superuser mode on mobile
+ * Three taps within 600ms triggers the toggle
+ */
+export function initSuperuserTapGesture(element: HTMLElement): () => void {
+  let tapCount = 0;
+  let tapTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const handleTap = () => {
+    tapCount++;
+    if (tapTimer) clearTimeout(tapTimer);
+
+    if (tapCount >= 3) {
+      tapCount = 0;
+      const newState = toggleSuperuserOverride();
+      showSuperuserNotification(newState);
+    } else {
+      tapTimer = setTimeout(() => {
+        tapCount = 0;
+      }, 600);
+    }
+  };
+
+  element.addEventListener('click', handleTap);
+  return () => element.removeEventListener('click', handleTap);
 }
 
 /**

@@ -10,8 +10,6 @@ import { QuizMode, getModeConfig } from '@/lib/quiz-modes';
 import { FEATURES } from '@/lib/feature-flags';
 import {
   getSuperuserOverride,
-  initGlobalSuperuserHelper,
-  initSuperuserKeyboardShortcut,
   SUPERUSER_CHANGE_EVENT
 } from '@/lib/superuser-override';
 import TypedAnswerQuestion from '@/components/WritingQuestion';
@@ -159,13 +157,9 @@ export default function QuizPage() {
     }
   }, [currentQuestionIndex]);
 
-  // Initialize superuser console helper and keyboard shortcut (Ctrl+Shift+S)
-  // Also listen for superuser change events to update React state
+  // Listen for superuser change events (from keyboard shortcut, triple-tap, or console)
+  // Shortcuts are initialized globally in HeaderTitle component
   useEffect(() => {
-    initGlobalSuperuserHelper();
-    const cleanupKeyboard = initSuperuserKeyboardShortcut();
-
-    // Listen for superuser toggle events (from keyboard shortcut or console)
     const handleSuperuserChange = (event: Event) => {
       const customEvent = event as CustomEvent<{ enabled: boolean }>;
       console.log(`🔔 QuizPage: superuser change event received, setting isSuperuser to ${customEvent.detail.enabled}`);
@@ -175,7 +169,6 @@ export default function QuizPage() {
     window.addEventListener(SUPERUSER_CHANGE_EVENT, handleSuperuserChange);
 
     return () => {
-      cleanupKeyboard();
       window.removeEventListener(SUPERUSER_CHANGE_EVENT, handleSuperuserChange);
     };
   }, []);
