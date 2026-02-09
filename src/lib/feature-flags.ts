@@ -24,6 +24,9 @@ export const FEATURES = {
 
   // Seconds to disable "Next Question" button after a wrong answer (0 = no countdown)
   WRONG_ANSWER_COUNTDOWN_SECONDS: 20,
+
+  // Leitner adaptive question selection (spaced repetition)
+  LEITNER_MODE: process.env.NEXT_PUBLIC_ENABLE_LEITNER === 'true',
 } as const;
 
 /**

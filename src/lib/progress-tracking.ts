@@ -5,6 +5,8 @@
 
 import { supabase, isSupabaseAvailable } from './supabase';
 import { Question } from '@/types';
+import { FEATURES } from './feature-flags';
+import { calculateNewBox } from './leitner';
 
 export interface QuizResult {
   studyCode: string;
@@ -16,6 +18,7 @@ export interface QuizResult {
   timeSpentSeconds?: number;
   questions: Question[];
   userAnswers: Record<string, string>;
+  evaluationResults?: Record<string, { isCorrect: boolean; score?: number }>;
 }
 
 /**
@@ -66,16 +69,25 @@ export async function saveQuizResults(result: QuizResult): Promise<string | null
     const quizHistoryId = quizData.id;
 
     // Insert question results
-    const questionResults = result.questions.map((question) => ({
-      quiz_history_id: quizHistoryId,
-      study_code_id: studyCodeId,
-      question_id: question.id,
-      topic: question.topic,
-      difficulty: question.difficulty,
-      is_correct: result.userAnswers[question.id] === question.correctAnswer,
-      user_answer: result.userAnswers[question.id] || null,
-      correct_answer: question.correctAnswer,
-    }));
+    const questionResults = result.questions.map((question) => {
+      // For typed-answer questions with evaluation results, use evaluation's isCorrect
+      const evalResult = result.evaluationResults?.[question.id];
+      const isCorrect = evalResult
+        ? evalResult.isCorrect
+        : result.userAnswers[question.id] === question.correctAnswer;
+
+      return {
+        quiz_history_id: quizHistoryId,
+        study_code_id: studyCodeId,
+        question_id: question.id,
+        topic: question.topic,
+        difficulty: question.difficulty,
+        is_correct: isCorrect,
+        user_answer: result.userAnswers[question.id] || null,
+        correct_answer: question.correctAnswer,
+        score: evalResult?.score ?? (isCorrect ? 100 : 0),
+      };
+    });
 
     const { error: resultsError } = await supabase!
       .from('question_results')
@@ -88,6 +100,15 @@ export async function saveQuizResults(result: QuizResult): Promise<string | null
 
     // Update study code stats
     await updateStudyCodeStats(studyCodeId);
+
+    // Update Leitner state if adaptive mode is enabled
+    if (FEATURES.LEITNER_MODE) {
+      const leitnerUpdates = questionResults.map((qr) => ({
+        questionId: qr.question_id,
+        isCorrect: qr.is_correct,
+      }));
+      await updateLeitnerState(studyCodeId, leitnerUpdates);
+    }
 
     return quizHistoryId;
   } catch (error) {
@@ -181,6 +202,68 @@ export async function getProgress(studyCode: string): Promise<{
   } catch (error) {
     console.error('Failed to get progress:', error);
     return null;
+  }
+}
+
+/**
+ * Update Leitner state for all questions in a completed quiz.
+ * Creates entries for unseen questions, updates existing ones.
+ */
+async function updateLeitnerState(
+  studyCodeId: string,
+  questionResults: Array<{ questionId: string; isCorrect: boolean }>
+): Promise<void> {
+  if (!isSupabaseAvailable()) return;
+
+  try {
+    const questionIds = questionResults.map((r) => r.questionId);
+
+    // Fetch existing Leitner state for these questions
+    const { data: existingStates, error: fetchError } = await supabase!
+      .from('leitner_state')
+      .select('question_id, box, consecutive_correct')
+      .eq('study_code_id', studyCodeId)
+      .in('question_id', questionIds);
+
+    if (fetchError) {
+      console.error('Error fetching Leitner state:', fetchError);
+      return;
+    }
+
+    const stateMap = new Map(
+      (existingStates || []).map((s) => [
+        s.question_id,
+        { box: s.box as number, consecutiveCorrect: s.consecutive_correct as number },
+      ])
+    );
+
+    // Calculate new states
+    const upserts = questionResults.map(({ questionId, isCorrect }) => {
+      const existing = stateMap.get(questionId);
+      const { box, consecutiveCorrect } = calculateNewBox(
+        existing?.box ?? 1,
+        existing?.consecutiveCorrect ?? 0,
+        isCorrect
+      );
+
+      return {
+        study_code_id: studyCodeId,
+        question_id: questionId,
+        box,
+        consecutive_correct: consecutiveCorrect,
+        last_reviewed: new Date().toISOString(),
+      };
+    });
+
+    const { error: upsertError } = await supabase!
+      .from('leitner_state')
+      .upsert(upserts, { onConflict: 'study_code_id,question_id' });
+
+    if (upsertError) {
+      console.error('Error updating Leitner state:', upsertError);
+    }
+  } catch (error) {
+    console.error('Failed to update Leitner state:', error);
   }
 }
 

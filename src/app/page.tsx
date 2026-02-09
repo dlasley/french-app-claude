@@ -15,6 +15,7 @@ import {
 import { StudyCodeDisplay } from '@/components/StudyCodeDisplay';
 import { StudyCodeEntry } from '@/components/StudyCodeEntry';
 import { QUIZ_MODES, QuizMode, getDefaultMode } from '@/lib/quiz-modes';
+import { FEATURES } from '@/lib/feature-flags';
 
 type Phase = 'resolving' | 'choosing' | 'ready';
 
@@ -35,8 +36,9 @@ function HomeContent() {
   const searchParams = useSearchParams();
   const [selectedUnit, setSelectedUnit] = useState<string>('all');
   const [numQuestions, setNumQuestions] = useState<number>(30);
-  const [difficulty, setDifficulty] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate');
+  const [difficulty, setDifficulty] = useState<'beginner' | 'intermediate' | 'advanced'>('beginner');
   const [quizMode, setQuizMode] = useState<QuizMode>(getDefaultMode());
+  const [adaptiveMode, setAdaptiveMode] = useState(FEATURES.LEITNER_MODE);
   const [studyCode, setStudyCode] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>('resolving');
   const [existingCodeForSwap, setExistingCodeForSwap] = useState<string | null>(null);
@@ -104,9 +106,15 @@ function HomeContent() {
   }, [searchParams, router]);
 
   const handleStartPractice = () => {
-    router.push(
-      `/quiz/${selectedUnit}?num=${numQuestions}&difficulty=${difficulty}&mode=${quizMode}`
-    );
+    const params = new URLSearchParams({
+      num: numQuestions.toString(),
+      difficulty,
+      mode: quizMode,
+    });
+    if (adaptiveMode) {
+      params.set('adaptive', 'true');
+    }
+    router.push(`/quiz/${selectedUnit}?${params.toString()}`);
   };
 
   const modeConfig = QUIZ_MODES[quizMode];
@@ -260,6 +268,32 @@ function HomeContent() {
             })}
           </div>
         </div>
+
+        {/* Adaptive Mode Toggle */}
+        {FEATURES.LEITNER_MODE && studyCode && (
+          <div className="flex items-center justify-between p-4 rounded-lg border-2 border-gray-200 dark:border-gray-600">
+            <div>
+              <div className="font-semibold text-gray-900 dark:text-white">
+                Adaptive Mode
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                Prioritize questions you&apos;ve struggled with
+              </div>
+            </div>
+            <button
+              onClick={() => setAdaptiveMode(!adaptiveMode)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                adaptiveMode ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-600'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  adaptiveMode ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        )}
 
         {/* Difficulty Selection */}
         <div>

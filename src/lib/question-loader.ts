@@ -1,5 +1,6 @@
 import { supabase, isSupabaseAvailable } from './supabase';
 import { Question } from '@/types';
+import { getQuestionWeight } from './leitner';
 
 /**
  * Database question row type
@@ -163,6 +164,8 @@ export function selectQuestions(
     allowedTypes?: Question['type'][];
     /** Distribution ratios for each type (should sum to 1.0) */
     typeDistribution?: Partial<Record<Question['type'], number>>;
+    /** Leitner box weights for adaptive selection (questionId -> box number) */
+    leitnerWeights?: Map<string, number>;
   }
 ): SelectionResult {
   const warnings: string[] = [];
@@ -222,7 +225,7 @@ export function selectQuestions(
 
   if (criteria.typeDistribution) {
     // Select questions based on specified distribution
-    finalSelection = selectByDistribution(filtered, criteria.numQuestions, criteria.typeDistribution, warnings);
+    finalSelection = selectByDistribution(filtered, criteria.numQuestions, criteria.typeDistribution, warnings, criteria.leitnerWeights);
   } else {
     // Legacy behavior: 30% writing, 70% traditional
     const writingQuestions = filtered.filter(q => q.type === 'writing');
@@ -234,8 +237,11 @@ export function selectQuestions(
     );
     const desiredTraditionalCount = criteria.numQuestions - desiredWritingCount;
 
-    const shuffledWriting = [...writingQuestions].sort(() => Math.random() - 0.5);
-    const shuffledTraditional = [...traditionalQuestions].sort(() => Math.random() - 0.5);
+    const shuffleOrWeight = (qs: Question[]) =>
+      criteria.leitnerWeights ? weightedShuffle(qs, criteria.leitnerWeights) : [...qs].sort(() => Math.random() - 0.5);
+
+    const shuffledWriting = shuffleOrWeight(writingQuestions);
+    const shuffledTraditional = shuffleOrWeight(traditionalQuestions);
 
     const selectedWriting = shuffledWriting.slice(0, desiredWritingCount);
     const selectedTraditional = shuffledTraditional.slice(0, desiredTraditionalCount);
@@ -270,13 +276,49 @@ export function selectQuestions(
 }
 
 /**
+ * Weighted random shuffle: higher-weight questions appear first.
+ * Uses weighted random sampling without replacement.
+ */
+function weightedShuffle(
+  questions: Question[],
+  leitnerWeights: Map<string, number>
+): Question[] {
+  const remaining = questions.map((q) => ({
+    question: q,
+    weight: getQuestionWeight(leitnerWeights.get(q.id) ?? null),
+  }));
+
+  const result: Question[] = [];
+
+  while (remaining.length > 0) {
+    const totalWeight = remaining.reduce((sum, e) => sum + e.weight, 0);
+    let random = Math.random() * totalWeight;
+    let selectedIdx = 0;
+
+    for (let i = 0; i < remaining.length; i++) {
+      random -= remaining[i].weight;
+      if (random <= 0) {
+        selectedIdx = i;
+        break;
+      }
+    }
+
+    result.push(remaining[selectedIdx].question);
+    remaining.splice(selectedIdx, 1);
+  }
+
+  return result;
+}
+
+/**
  * Select questions based on type distribution ratios
  */
 function selectByDistribution(
   questions: Question[],
   numQuestions: number,
   distribution: Partial<Record<Question['type'], number>>,
-  warnings: string[]
+  warnings: string[],
+  leitnerWeights?: Map<string, number>
 ): Question[] {
   const selected: Question[] = [];
 
@@ -287,9 +329,11 @@ function selectByDistribution(
     byType[q.type].push(q);
   }
 
-  // Shuffle each type group
+  // Shuffle each type group (weighted if Leitner active, random otherwise)
   for (const type in byType) {
-    byType[type] = byType[type].sort(() => Math.random() - 0.5);
+    byType[type] = leitnerWeights
+      ? weightedShuffle(byType[type], leitnerWeights)
+      : byType[type].sort(() => Math.random() - 0.5);
   }
 
   // Calculate desired counts for each type using floor, then distribute remainder

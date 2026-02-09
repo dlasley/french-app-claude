@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { loadAllQuestions, selectQuestions } from '@/lib/question-loader';
 import { getModeConfig, QuizMode } from '@/lib/quiz-modes';
+import { FEATURES } from '@/lib/feature-flags';
+import { supabase, isSupabaseAvailable } from '@/lib/supabase';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,6 +13,8 @@ export async function POST(request: NextRequest) {
       numQuestions,
       difficulty,
       mode = 'practice' as QuizMode,
+      studyCodeId,
+      leitnerMode,
     } = body;
 
     // Validate inputs
@@ -40,6 +44,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Load Leitner state for weighted selection if adaptive mode is active
+    let leitnerWeights: Map<string, number> | undefined;
+    if (leitnerMode && studyCodeId && FEATURES.LEITNER_MODE && isSupabaseAvailable()) {
+      const { data, error } = await supabase!
+        .from('leitner_state')
+        .select('question_id, box')
+        .eq('study_code_id', studyCodeId);
+
+      if (!error && data) {
+        leitnerWeights = new Map(data.map((r) => [r.question_id, r.box as number]));
+        console.log(`🎯 Leitner: loaded ${leitnerWeights.size} question states for adaptive selection`);
+      }
+    }
+
     // Select questions based on criteria and mode
     const result = selectQuestions(allQuestions, {
       unitId: unitId || 'all',
@@ -48,6 +66,7 @@ export async function POST(request: NextRequest) {
       numQuestions: parseInt(numQuestions),
       allowedTypes: modeConfig.allowedTypes,
       typeDistribution: modeConfig.typeDistribution,
+      leitnerWeights,
     });
 
     if (result.questions.length === 0) {

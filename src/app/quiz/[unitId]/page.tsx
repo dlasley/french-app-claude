@@ -31,6 +31,7 @@ export default function QuizPage() {
   const numQuestions = parseInt(searchParams.get('num') || '5');
   const difficulty = searchParams.get('difficulty') || 'beginner';
   const mode = (searchParams.get('mode') || 'practice') as QuizMode;
+  const adaptive = searchParams.get('adaptive') === 'true';
   const previewMode = searchParams.get('preview');
 
   const unit = unitId === 'all' ? null : units.find((u) => u.id === unitId);
@@ -264,16 +265,25 @@ export default function QuizPage() {
     }
   }, [previewMode]);
 
-  // Load questions on mount
+  // Load questions on mount (defer when adaptive mode needs studyCodeUuid)
   useEffect(() => {
+    if (adaptive && !studyCodeUuid) return; // Wait for studyCodeUuid to resolve
+
     async function fetchQuestions() {
       try {
         setLoading(true);
         setWarnings([]);
+
+        const requestBody: Record<string, unknown> = { unitId, topic, numQuestions, difficulty, mode };
+        if (adaptive && studyCodeUuid) {
+          requestBody.studyCodeId = studyCodeUuid;
+          requestBody.leitnerMode = true;
+        }
+
         const response = await fetch('/api/generate-questions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ unitId, topic, numQuestions, difficulty, mode }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -293,7 +303,7 @@ export default function QuizPage() {
     }
 
     fetchQuestions();
-  }, [unitId, topic, numQuestions, difficulty, mode]);
+  }, [unitId, topic, numQuestions, difficulty, mode, adaptive, studyCodeUuid]);
 
   const currentQuestion = questions[currentQuestionIndex];
   const hasAnswered = currentQuestion && userAnswers[currentQuestion.id] !== undefined;
@@ -346,11 +356,11 @@ export default function QuizPage() {
     try {
       const incorrectQuestions = questions
         .filter((q) => {
-          // For writing questions, check evaluation result
-          if (q.type === 'writing' && evaluationResults[q.id]) {
+          // For typed-answer questions (writing and fill-in-blank), use evaluation result
+          if ((q.type === 'writing' || q.type === 'fill-in-blank') && evaluationResults[q.id]) {
             return !evaluationResults[q.id].isCorrect;
           }
-          // For other questions, check direct answer match
+          // For MCQ/true-false, check direct answer match
           return userAnswers[q.id] !== q.correctAnswer;
         })
         .map((q) => ({ topic: q.topic, unitId: q.unitId }));
@@ -394,6 +404,7 @@ export default function QuizPage() {
       scorePercentage,
       questions,
       userAnswers,
+      evaluationResults,
     };
 
     try {
@@ -427,13 +438,13 @@ export default function QuizPage() {
   const calculateScore = () => {
     let correct = 0;
     questions.forEach((q) => {
-      // For writing questions, check evaluation result
-      if (q.type === 'writing' && evaluationResults[q.id]) {
+      // For typed-answer questions (writing and fill-in-blank), use evaluation result
+      if ((q.type === 'writing' || q.type === 'fill-in-blank') && evaluationResults[q.id]) {
         if (evaluationResults[q.id].isCorrect) {
           correct++;
         }
       } else {
-        // For other questions, check direct answer match
+        // For MCQ/true-false, check direct answer match
         if (userAnswers[q.id] === q.correctAnswer) {
           correct++;
         }
@@ -857,20 +868,12 @@ export default function QuizPage() {
             </div>
           )}
 
-          <div className="flex gap-4">
-            <button
-              onClick={() => router.push('/')}
-              className="flex-1 py-3 px-6 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition-colors"
-            >
-              Practice Again
-            </button>
-            <button
-              onClick={() => window.location.reload()}
-              className="flex-1 py-3 px-6 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg font-semibold hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-            >
-              Retry Quiz
-            </button>
-          </div>
+          <button
+            onClick={() => router.push('/')}
+            className="w-full py-3 px-6 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition-colors"
+          >
+            Practice Again
+          </button>
         </div>
       </div>
     );
@@ -883,13 +886,20 @@ export default function QuizPage() {
   return (
     <div className="max-w-3xl mx-auto">
       {/* Mode Badge */}
-      <div className={`mb-4 px-4 py-2 rounded-lg inline-flex items-center gap-2 ${
-        isAssessmentMode
-          ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200'
-          : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-200'
-      }`}>
-        <span>{isAssessmentMode ? '📝' : '📚'}</span>
-        <span className="font-semibold">{modeConfig.label}</span>
+      <div className="mb-4 flex items-center gap-2">
+        <div className={`px-4 py-2 rounded-lg inline-flex items-center gap-2 ${
+          isAssessmentMode
+            ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200'
+            : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-200'
+        }`}>
+          <span>{isAssessmentMode ? '📝' : '📚'}</span>
+          <span className="font-semibold">{modeConfig.label}</span>
+        </div>
+        {adaptive && (
+          <div className="px-3 py-2 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 inline-flex items-center gap-1">
+            <span className="font-semibold text-sm">Adaptive</span>
+          </div>
+        )}
       </div>
 
       {/* Warnings */}

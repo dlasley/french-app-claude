@@ -60,6 +60,7 @@ CREATE TABLE question_results (
   is_correct BOOLEAN NOT NULL,
   user_answer TEXT,
   correct_answer TEXT NOT NULL,
+  score INTEGER DEFAULT NULL CHECK (score IS NULL OR (score >= 0 AND score <= 100)),
   attempted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -106,6 +107,21 @@ CREATE INDEX idx_questions_content_hash ON questions(content_hash);
 CREATE INDEX idx_questions_batch_id ON questions(batch_id);
 CREATE INDEX idx_questions_unit_topic_diff ON questions(unit_id, topic, difficulty);
 CREATE INDEX idx_questions_unit_type ON questions(unit_id, type);
+
+-- Leitner Spaced Repetition State
+-- Tracks per-student per-question box assignments for adaptive question selection
+CREATE TABLE leitner_state (
+  study_code_id UUID NOT NULL REFERENCES study_codes(id) ON DELETE CASCADE,
+  question_id TEXT NOT NULL,
+  box INTEGER NOT NULL DEFAULT 1 CHECK (box >= 1 AND box <= 5),
+  consecutive_correct INTEGER NOT NULL DEFAULT 0,
+  last_reviewed TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+  PRIMARY KEY (study_code_id, question_id)
+);
+
+CREATE INDEX idx_leitner_state_study_code ON leitner_state(study_code_id);
+CREATE INDEX idx_leitner_state_box ON leitner_state(study_code_id, box);
 
 -- Concept Mastery View
 -- Aggregates performance by topic for each student
@@ -234,6 +250,7 @@ ALTER TABLE study_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quiz_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE question_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE leitner_state ENABLE ROW LEVEL SECURITY;
 
 -- Study codes policies
 CREATE POLICY "Anyone can create study codes"
@@ -299,6 +316,27 @@ CREATE POLICY "Anyone can delete questions"
   TO anon
   USING (true);
 
+-- Leitner state policies
+CREATE POLICY "Anyone can read leitner_state"
+  ON leitner_state FOR SELECT
+  TO anon
+  USING (true);
+
+CREATE POLICY "Anyone can insert leitner_state"
+  ON leitner_state FOR INSERT
+  TO anon
+  WITH CHECK (true);
+
+CREATE POLICY "Anyone can update leitner_state"
+  ON leitner_state FOR UPDATE
+  TO anon
+  USING (true);
+
+CREATE POLICY "Anyone can delete leitner_state"
+  ON leitner_state FOR DELETE
+  TO anon
+  USING (true);
+
 -- Table and column comments
 COMMENT ON TABLE study_codes IS 'Anonymous student identifiers';
 COMMENT ON TABLE quiz_history IS 'Individual quiz attempts';
@@ -314,3 +352,8 @@ COMMENT ON COLUMN questions.requires_complete_sentence IS 'Advanced questions re
 COMMENT ON COLUMN questions.content_hash IS 'MD5 hash of normalized question content for deduplication during regeneration';
 COMMENT ON COLUMN questions.batch_id IS 'Identifies which generation batch created this question (e.g., 2026-02-04_unit3)';
 COMMENT ON COLUMN questions.source_file IS 'Path to the markdown learning file used to generate this question';
+COMMENT ON COLUMN question_results.score IS 'Evaluation score 0-100. NULL for legacy data. MCQ/TF are always 0 or 100. Typed answers use fuzzy/API evaluation score.';
+COMMENT ON TABLE leitner_state IS 'Leitner spaced repetition box assignments per student per question';
+COMMENT ON COLUMN leitner_state.box IS 'Leitner box 1-5. Box 1 = most frequent review, Box 5 = mastered';
+COMMENT ON COLUMN leitner_state.consecutive_correct IS 'Number of consecutive correct answers. Resets to 0 on wrong answer.';
+COMMENT ON COLUMN leitner_state.last_reviewed IS 'When this question was last attempted';
