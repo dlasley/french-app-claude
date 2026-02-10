@@ -1,90 +1,54 @@
 /**
- * Simple Authentication for Admin Dashboard
- * Uses password-based authentication with session storage
+ * Client-side admin authentication helpers
+ * Calls server-side API routes — auth state lives in HttpOnly cookies
  */
-
-const AUTH_SESSION_KEY = 'admin_auth_session';
-const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-
-export interface AuthSession {
-  authenticated: boolean;
-  expiresAt: number;
-}
 
 /**
- * Verify admin password
+ * Login with admin password
+ * Server verifies password and sets HttpOnly session cookie
  */
-export function verifyAdminPassword(password: string): boolean {
-  const adminPassword = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
-
-  if (!adminPassword) {
-    console.error('NEXT_PUBLIC_ADMIN_PASSWORD not set in environment');
-    return false;
-  }
-
-  return password === adminPassword;
-}
-
-/**
- * Create authentication session
- */
-export function createAuthSession(): void {
-  if (typeof window === 'undefined') return;
-
-  const session: AuthSession = {
-    authenticated: true,
-    expiresAt: Date.now() + SESSION_DURATION,
-  };
-
-  localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
-}
-
-/**
- * Check if user is authenticated
- */
-export function isAuthenticated(): boolean {
-  if (typeof window === 'undefined') return false;
-
+export async function loginAdmin(password: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const sessionData = localStorage.getItem(AUTH_SESSION_KEY);
-    if (!sessionData) return false;
+    const res = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
 
-    const session: AuthSession = JSON.parse(sessionData);
-
-    // Check if session is expired
-    if (Date.now() > session.expiresAt) {
-      clearAuthSession();
-      return false;
+    if (res.ok) {
+      return { success: true };
     }
 
-    return session.authenticated;
-  } catch (error) {
-    console.error('Error checking authentication:', error);
+    if (res.status === 429) {
+      return { success: false, error: 'Too many attempts. Please wait before trying again.' };
+    }
+
+    const data = await res.json();
+    return { success: false, error: data.error || 'Login failed' };
+  } catch {
+    return { success: false, error: 'Network error. Please try again.' };
+  }
+}
+
+/**
+ * Verify current session via server cookie
+ */
+export async function verifySession(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/admin/verify');
+    return res.ok;
+  } catch {
     return false;
   }
 }
 
 /**
- * Clear authentication session (logout)
+ * Logout — expires the server cookie
  */
-export function clearAuthSession(): void {
-  if (typeof window === 'undefined') return;
-  localStorage.removeItem(AUTH_SESSION_KEY);
-}
-
-/**
- * Get session expiry time
- */
-export function getSessionExpiry(): Date | null {
-  if (typeof window === 'undefined') return null;
-
+export async function logoutAdmin(): Promise<void> {
   try {
-    const sessionData = localStorage.getItem(AUTH_SESSION_KEY);
-    if (!sessionData) return null;
-
-    const session: AuthSession = JSON.parse(sessionData);
-    return new Date(session.expiresAt);
-  } catch (error) {
-    return null;
+    await fetch('/api/admin/logout', { method: 'POST' });
+  } catch {
+    // Best effort
   }
 }

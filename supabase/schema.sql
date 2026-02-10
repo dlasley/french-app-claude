@@ -252,88 +252,67 @@ ALTER TABLE question_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leitner_state ENABLE ROW LEVEL SECURITY;
 
--- Study codes policies
-CREATE POLICY "Anyone can create study codes"
-  ON study_codes FOR INSERT
-  TO anon
-  WITH CHECK (true);
-
-CREATE POLICY "Anyone can read study codes"
+-- Study codes policies (no DELETE for anon; INSERT/UPDATE restricted)
+CREATE POLICY "anon_select_study_codes"
   ON study_codes FOR SELECT
   TO anon
   USING (true);
 
-CREATE POLICY "Anyone can update study codes"
+CREATE POLICY "anon_insert_study_codes"
+  ON study_codes FOR INSERT
+  TO anon
+  WITH CHECK (
+    is_superuser = false
+    AND admin_label IS NULL
+    AND wrong_answer_countdown IS NULL
+  );
+
+CREATE POLICY "anon_update_study_codes"
   ON study_codes FOR UPDATE
   TO anon
   USING (true);
 
-CREATE POLICY "Anyone can delete study codes"
-  ON study_codes FOR DELETE
-  TO anon
-  USING (true);
-
--- Quiz history policies
-CREATE POLICY "Anyone can create quiz history"
-  ON quiz_history FOR INSERT
-  TO anon
-  WITH CHECK (true);
-
-CREATE POLICY "Anyone can read quiz history"
+-- Quiz history policies (SELECT + INSERT only)
+CREATE POLICY "anon_select_quiz_history"
   ON quiz_history FOR SELECT
   TO anon
   USING (true);
 
--- Question results policies
-CREATE POLICY "Anyone can create question results"
-  ON question_results FOR INSERT
+CREATE POLICY "anon_insert_quiz_history"
+  ON quiz_history FOR INSERT
   TO anon
   WITH CHECK (true);
 
-CREATE POLICY "Anyone can read question results"
+-- Question results policies (SELECT + INSERT only)
+CREATE POLICY "anon_select_question_results"
   ON question_results FOR SELECT
   TO anon
   USING (true);
 
--- Questions policies
-CREATE POLICY "Anyone can read questions"
+CREATE POLICY "anon_insert_question_results"
+  ON question_results FOR INSERT
+  TO anon
+  WITH CHECK (true);
+
+-- Questions policies (read-only for anon; scripts use secret key for writes)
+CREATE POLICY "anon_select_questions"
   ON questions FOR SELECT
   TO anon
   USING (true);
 
-CREATE POLICY "Anyone can insert questions"
-  ON questions FOR INSERT
-  TO anon
-  WITH CHECK (true);
-
-CREATE POLICY "Anyone can update questions"
-  ON questions FOR UPDATE
-  TO anon
-  USING (true);
-
-CREATE POLICY "Anyone can delete questions"
-  ON questions FOR DELETE
-  TO anon
-  USING (true);
-
--- Leitner state policies
-CREATE POLICY "Anyone can read leitner_state"
+-- Leitner state policies (SELECT + INSERT + UPDATE; DELETE cascades from study_codes)
+CREATE POLICY "anon_select_leitner_state"
   ON leitner_state FOR SELECT
   TO anon
   USING (true);
 
-CREATE POLICY "Anyone can insert leitner_state"
+CREATE POLICY "anon_insert_leitner_state"
   ON leitner_state FOR INSERT
   TO anon
   WITH CHECK (true);
 
-CREATE POLICY "Anyone can update leitner_state"
+CREATE POLICY "anon_update_leitner_state"
   ON leitner_state FOR UPDATE
-  TO anon
-  USING (true);
-
-CREATE POLICY "Anyone can delete leitner_state"
-  ON leitner_state FOR DELETE
   TO anon
   USING (true);
 

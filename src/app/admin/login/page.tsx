@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { verifyAdminPassword, createAuthSession } from '@/lib/auth';
+import { loginAdmin } from '@/lib/auth';
 
 export default function AdminLogin() {
   const router = useRouter();
@@ -16,16 +16,15 @@ export default function AdminLogin() {
     setLoading(true);
 
     try {
-      const isValid = verifyAdminPassword(password);
+      const result = await loginAdmin(password);
 
-      if (isValid) {
-        createAuthSession();
+      if (result.success) {
         router.push('/admin');
       } else {
-        setError('Invalid password. Please try again.');
+        setError(result.error || 'Invalid password. Please try again.');
         setPassword('');
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred. Please try again.');
     } finally {
       setLoading(false);

@@ -1,9 +1,9 @@
 /**
- * Admin/Teacher Dashboard Functions
- * Provides access to all student data for teachers
+ * Admin Dashboard API Client
+ * Calls server-side admin API routes (protected by cookie auth)
  */
 
-import { supabase, isSupabaseAvailable, StudyCode, QuizHistory, ConceptMastery } from './supabase';
+import type { QuizHistory, ConceptMastery } from './supabase';
 
 export interface ClasswideStats {
   totalStudents: number;
@@ -27,58 +27,22 @@ export interface StudentSummary {
   createdAt: string;
 }
 
+export interface StudentDetailedProgress {
+  studyCode: StudentSummary;
+  quizHistory: QuizHistory[];
+  conceptMastery: ConceptMastery[];
+  weakTopics: ConceptMastery[];
+}
+
 /**
  * Get class-wide statistics
  */
 export async function getClasswideStats(): Promise<ClasswideStats | null> {
-  if (!isSupabaseAvailable()) return null;
-
   try {
-    // Get total students
-    const { count: totalStudents } = await supabase!
-      .from('study_codes')
-      .select('*', { count: 'exact', head: true });
-
-    // Get total quizzes
-    const { count: totalQuizzes } = await supabase!
-      .from('quiz_history')
-      .select('*', { count: 'exact', head: true });
-
-    // Get total questions answered
-    const { data: studyCodes } = await supabase!
-      .from('study_codes')
-      .select('total_questions, correct_answers');
-
-    const totalQuestions = studyCodes?.reduce((sum, sc) => sum + (sc.total_questions || 0), 0) || 0;
-    const totalCorrect = studyCodes?.reduce((sum, sc) => sum + (sc.correct_answers || 0), 0) || 0;
-    const averageAccuracy = totalQuestions > 0 ? (totalCorrect / totalQuestions) * 100 : 0;
-
-    // Get active students (last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const { count: activeStudentsLast7Days } = await supabase!
-      .from('study_codes')
-      .select('*', { count: 'exact', head: true })
-      .gte('last_active_at', sevenDaysAgo.toISOString());
-
-    // Get active students (last 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const { count: activeStudentsLast30Days } = await supabase!
-      .from('study_codes')
-      .select('*', { count: 'exact', head: true })
-      .gte('last_active_at', thirtyDaysAgo.toISOString());
-
-    return {
-      totalStudents: totalStudents || 0,
-      totalQuizzes: totalQuizzes || 0,
-      totalQuestions,
-      averageAccuracy,
-      activeStudentsLast7Days: activeStudentsLast7Days || 0,
-      activeStudentsLast30Days: activeStudentsLast30Days || 0,
-    };
-  } catch (error) {
-    console.error('Error fetching classwide stats:', error);
+    const res = await fetch('/api/admin/stats');
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
     return null;
   }
 }
@@ -87,48 +51,11 @@ export async function getClasswideStats(): Promise<ClasswideStats | null> {
  * Get all students with summary data
  */
 export async function getAllStudents(sortBy: 'lastActive' | 'accuracy' | 'quizzes' = 'lastActive'): Promise<StudentSummary[]> {
-  if (!isSupabaseAvailable()) return [];
-
   try {
-    const { data, error } = await supabase!
-      .from('study_codes')
-      .select('*')
-      .order('last_active_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching students:', error);
-      return [];
-    }
-
-    const students: StudentSummary[] = (data || []).map((sc) => {
-      const overallAccuracy = sc.total_questions > 0
-        ? (sc.correct_answers / sc.total_questions) * 100
-        : 0;
-
-      return {
-        code: sc.code,
-        displayName: sc.display_name,
-        adminLabel: sc.admin_label,
-        wrongAnswerCountdown: sc.wrong_answer_countdown ?? null,
-        totalQuizzes: sc.total_quizzes || 0,
-        totalQuestions: sc.total_questions || 0,
-        correctAnswers: sc.correct_answers || 0,
-        overallAccuracy,
-        lastActive: sc.last_active_at,
-        createdAt: sc.created_at,
-      };
-    });
-
-    // Sort based on sortBy parameter
-    if (sortBy === 'accuracy') {
-      students.sort((a, b) => b.overallAccuracy - a.overallAccuracy);
-    } else if (sortBy === 'quizzes') {
-      students.sort((a, b) => b.totalQuizzes - a.totalQuizzes);
-    }
-
-    return students;
-  } catch (error) {
-    console.error('Error fetching all students:', error);
+    const res = await fetch(`/api/admin/students?sortBy=${sortBy}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
     return [];
   }
 }
@@ -137,107 +64,26 @@ export async function getAllStudents(sortBy: 'lastActive' | 'accuracy' | 'quizze
  * Search students by code or display name
  */
 export async function searchStudents(query: string): Promise<StudentSummary[]> {
-  if (!isSupabaseAvailable() || !query) return [];
+  if (!query) return [];
 
   try {
-    const { data, error } = await supabase!
-      .from('study_codes')
-      .select('*')
-      .or(`code.ilike.%${query}%,display_name.ilike.%${query}%,admin_label.ilike.%${query}%`)
-      .order('last_active_at', { ascending: false });
-
-    if (error) {
-      console.error('Error searching students:', error);
-      return [];
-    }
-
-    return (data || []).map((sc) => ({
-      code: sc.code,
-      displayName: sc.display_name,
-      adminLabel: sc.admin_label,
-      wrongAnswerCountdown: sc.wrong_answer_countdown ?? null,
-      totalQuizzes: sc.total_quizzes || 0,
-      totalQuestions: sc.total_questions || 0,
-      correctAnswers: sc.correct_answers || 0,
-      overallAccuracy: sc.total_questions > 0
-        ? (sc.correct_answers / sc.total_questions) * 100
-        : 0,
-      lastActive: sc.last_active_at,
-      createdAt: sc.created_at,
-    }));
-  } catch (error) {
-    console.error('Error searching students:', error);
+    const res = await fetch(`/api/admin/students?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
     return [];
   }
 }
 
 /**
- * Get detailed progress for a specific student (by study code)
+ * Get detailed progress for a specific student
  */
-export interface StudentDetailedProgress {
-  studyCode: StudentSummary;
-  quizHistory: QuizHistory[];
-  conceptMastery: ConceptMastery[];
-  weakTopics: ConceptMastery[];
-}
-
 export async function getStudentProgress(code: string): Promise<StudentDetailedProgress | null> {
-  if (!isSupabaseAvailable()) return null;
-
   try {
-    // Get study code details
-    const { data: studyCodeData } = await supabase!
-      .from('study_codes')
-      .select('*')
-      .eq('code', code)
-      .single();
-
-    if (!studyCodeData) return null;
-
-    const studyCode: StudentSummary = {
-      code: studyCodeData.code,
-      displayName: studyCodeData.display_name,
-      adminLabel: studyCodeData.admin_label,
-      wrongAnswerCountdown: studyCodeData.wrong_answer_countdown ?? null,
-      totalQuizzes: studyCodeData.total_quizzes || 0,
-      totalQuestions: studyCodeData.total_questions || 0,
-      correctAnswers: studyCodeData.correct_answers || 0,
-      overallAccuracy: studyCodeData.total_questions > 0
-        ? (studyCodeData.correct_answers / studyCodeData.total_questions) * 100
-        : 0,
-      lastActive: studyCodeData.last_active_at,
-      createdAt: studyCodeData.created_at,
-    };
-
-    // Get quiz history
-    const { data: quizHistory } = await supabase!
-      .from('quiz_history')
-      .select('*')
-      .eq('study_code_id', studyCodeData.id)
-      .order('quiz_date', { ascending: false });
-
-    // Get concept mastery
-    const { data: conceptMastery } = await supabase!
-      .from('concept_mastery')
-      .select('*')
-      .eq('study_code_id', studyCodeData.id)
-      .order('mastery_percentage', { ascending: false });
-
-    // Get weak topics
-    const { data: weakTopics } = await supabase!
-      .from('weak_topics')
-      .select('*')
-      .eq('study_code_id', studyCodeData.id)
-      .order('mastery_percentage', { ascending: true });
-
-    return {
-      studyCode,
-      quizHistory: quizHistory || [],
-      conceptMastery: conceptMastery || [],
-      weakTopics: weakTopics || [],
-    };
-  } catch (error) {
-    console.error('Error fetching student progress:', error);
+    const res = await fetch(`/api/admin/students/${encodeURIComponent(code)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
     return null;
   }
 }
@@ -246,114 +92,77 @@ export async function getStudentProgress(code: string): Promise<StudentDetailedP
  * Update admin label for a study code
  */
 export async function updateAdminLabel(code: string, adminLabel: string): Promise<boolean> {
-  if (!isSupabaseAvailable()) return false;
-
   try {
-    const { error } = await supabase!
-      .from('study_codes')
-      .update({ admin_label: adminLabel })
-      .eq('code', code);
-
-    if (error) {
-      console.error('Error updating admin label:', error);
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Failed to update admin label:', error);
+    const res = await fetch(`/api/admin/students/${encodeURIComponent(code)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminLabel }),
+    });
+    return res.ok;
+  } catch {
     return false;
   }
 }
 
 /**
  * Update wrong answer countdown override for a study code
- * Pass null to reset to the global default
  */
 export async function updateCountdownOverride(code: string, seconds: number | null): Promise<boolean> {
-  if (!isSupabaseAvailable()) return false;
-
   try {
-    const { error } = await supabase!
-      .from('study_codes')
-      .update({ wrong_answer_countdown: seconds })
-      .eq('code', code);
-
-    if (error) {
-      console.error('Error updating countdown override:', error);
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Failed to update countdown override:', error);
+    const res = await fetch(`/api/admin/students/${encodeURIComponent(code)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wrongAnswerCountdown: seconds }),
+    });
+    return res.ok;
+  } catch {
     return false;
   }
 }
 
 /**
  * Delete a single student and all their data
- * Due to ON DELETE CASCADE, this removes quiz_history and concept_mastery too
  */
 export async function deleteStudent(code: string): Promise<boolean> {
-  if (!isSupabaseAvailable()) return false;
-
   try {
-    const { error } = await supabase!
-      .from('study_codes')
-      .delete()
-      .eq('code', code);
-
-    if (error) {
-      console.error('Error deleting student:', error);
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Failed to delete student:', error);
+    const res = await fetch(`/api/admin/students/${encodeURIComponent(code)}`, {
+      method: 'DELETE',
+    });
+    return res.ok;
+  } catch {
     return false;
   }
 }
 
 /**
  * Delete multiple students at once
- * Returns the count of successfully deleted students and any failed codes
  */
 export async function deleteStudents(codes: string[]): Promise<{
   success: boolean;
   deleted: number;
   failed: string[];
 }> {
-  if (!isSupabaseAvailable()) {
+  try {
+    const res = await fetch('/api/admin/students/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codes }),
+    });
+
+    if (!res.ok) {
+      return { success: false, deleted: 0, failed: codes };
+    }
+
+    return await res.json();
+  } catch {
     return { success: false, deleted: 0, failed: codes };
   }
-
-  const failed: string[] = [];
-  let deleted = 0;
-
-  // Delete one by one to track individual failures
-  for (const code of codes) {
-    const success = await deleteStudent(code);
-    if (success) {
-      deleted++;
-    } else {
-      failed.push(code);
-    }
-  }
-
-  return {
-    success: failed.length === 0,
-    deleted,
-    failed,
-  };
 }
 
 /**
  * Export all student data as CSV
  */
 export function exportStudentsToCSV(students: StudentSummary[]): string {
-  // Helper to format dates in PST
   const formatDateTimePST = (dateString: string): string => {
     return new Date(dateString).toLocaleString('en-US', {
       timeZone: 'America/Los_Angeles',

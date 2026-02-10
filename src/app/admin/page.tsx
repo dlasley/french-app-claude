@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated, clearAuthSession } from '@/lib/auth';
+import { verifySession, logoutAdmin } from '@/lib/auth';
 import { FEATURES } from '@/lib/feature-flags';
 import {
   getClasswideStats,
@@ -56,10 +56,11 @@ export default function AdminPage() {
 
   // Check authentication
   useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push('/admin/login');
-      return;
-    }
+    verifySession().then((valid) => {
+      if (!valid) {
+        router.push('/admin/login');
+      }
+    });
   }, [router]);
 
   // Load data on mount
@@ -573,8 +574,8 @@ export default function AdminPage() {
           </p>
         </div>
         <button
-          onClick={() => {
-            clearAuthSession();
+          onClick={async () => {
+            await logoutAdmin();
             router.push('/admin/login');
           }}
           className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center gap-2"

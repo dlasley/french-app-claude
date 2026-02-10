@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { FEATURES, getFuzzyLogicThreshold, CORRECTNESS_THRESHOLDS } from '@/lib/feature-flags';
 import { fuzzyEvaluateAnswer, calculateSimilarity } from '@/lib/writing-questions';
 import { supabase, isSupabaseAvailable } from '@/lib/supabase';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limiter';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -70,7 +71,26 @@ export interface EvaluationResult {
   };
 }
 
+// Rate limit: 15 requests per minute per IP
+const EVALUATE_RATE_LIMIT = { windowMs: 60 * 1000, maxRequests: 15 };
+
 export async function POST(request: NextRequest) {
+  const clientIp = getClientIp(request);
+  const rateLimitResult = checkRateLimit(`evaluate:${clientIp}`, EVALUATE_RATE_LIMIT);
+
+  if (!rateLimitResult.allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please wait before submitting again.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil((rateLimitResult.resetAt - Date.now()) / 1000)),
+          'X-RateLimit-Remaining': '0',
+        },
+      }
+    );
+  }
+
   try {
     const {
       question,

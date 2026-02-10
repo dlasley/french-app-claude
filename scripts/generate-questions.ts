@@ -194,11 +194,16 @@ function computeContentHash(
  */
 function initSupabase(): SupabaseClient | null {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // Use secret key (bypasses RLS) for script operations, fall back to anon key
+  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
     console.log('⚠️  Supabase credentials not found in environment');
     return null;
+  }
+
+  if (!process.env.SUPABASE_SECRET_KEY) {
+    console.log('⚠️  SUPABASE_SECRET_KEY not set — using anon key (may fail with RLS restrictions)');
   }
 
   return createClient(supabaseUrl, supabaseKey);
