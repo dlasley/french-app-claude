@@ -184,7 +184,7 @@ function HomeContent() {
             Practice French
           </h2>
           <p className="text-lg text-gray-600 dark:text-gray-300">
-            AI-generated questions from all your course materials
+            Questions and assessments generated from your course materials
           </p>
         </div>
         <StudyCodeEntry
@@ -215,7 +215,7 @@ function HomeContent() {
           Practice French
         </h2>
         <p className="text-lg text-gray-600 dark:text-gray-300">
-          AI-generated questions from all your course materials
+          Questions and evaluations generated from your course materials
         </p>
       </div>
 

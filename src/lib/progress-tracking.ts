@@ -101,14 +101,8 @@ export async function saveQuizResults(result: QuizResult): Promise<string | null
     // Update study code stats
     await updateStudyCodeStats(studyCodeId);
 
-    // Update Leitner state if adaptive mode is enabled
-    if (FEATURES.LEITNER_MODE) {
-      const leitnerUpdates = questionResults.map((qr) => ({
-        questionId: qr.question_id,
-        isCorrect: qr.is_correct,
-      }));
-      await updateLeitnerState(studyCodeId, leitnerUpdates);
-    }
+    // Leitner state is updated per-question (fire-and-forget in quiz page),
+    // not at quiz completion, to capture mastery signals from abandoned quizzes.
 
     return quizHistoryId;
   } catch (error) {
@@ -258,6 +252,54 @@ async function updateLeitnerState(
     const { error: upsertError } = await supabase!
       .from('leitner_state')
       .upsert(upserts, { onConflict: 'study_code_id,question_id' });
+
+    if (upsertError) {
+      console.error('Error updating Leitner state:', upsertError);
+    }
+  } catch (error) {
+    console.error('Failed to update Leitner state:', error);
+  }
+}
+
+/**
+ * Update Leitner state for a single question immediately after it's answered.
+ * Fire-and-forget: callers should not await this.
+ */
+export async function updateLeitnerStateForQuestion(
+  studyCodeId: string,
+  questionId: string,
+  isCorrect: boolean
+): Promise<void> {
+  if (!isSupabaseAvailable()) return;
+
+  try {
+    const { data: existing, error: fetchError } = await supabase!
+      .from('leitner_state')
+      .select('box, consecutive_correct')
+      .eq('study_code_id', studyCodeId)
+      .eq('question_id', questionId)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('Error fetching Leitner state:', fetchError);
+      return;
+    }
+
+    const { box, consecutiveCorrect } = calculateNewBox(
+      (existing?.box as number) ?? 1,
+      (existing?.consecutive_correct as number) ?? 0,
+      isCorrect
+    );
+
+    const { error: upsertError } = await supabase!
+      .from('leitner_state')
+      .upsert({
+        study_code_id: studyCodeId,
+        question_id: questionId,
+        box,
+        consecutive_correct: consecutiveCorrect,
+        last_reviewed: new Date().toISOString(),
+      }, { onConflict: 'study_code_id,question_id' });
 
     if (upsertError) {
       console.error('Error updating Leitner state:', upsertError);

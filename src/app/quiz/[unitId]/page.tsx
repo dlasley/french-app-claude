@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Question } from '@/types';
 import { units } from '@/lib/units';
 import { getStoredStudyCode, getStudyCodeId, getQuizHistory } from '@/lib/study-codes';
-import { saveQuizResults, saveQuizResultsLocally, getProgress } from '@/lib/progress-tracking';
+import { saveQuizResults, saveQuizResultsLocally, getProgress, updateLeitnerStateForQuestion } from '@/lib/progress-tracking';
 import { QuizMode, getModeConfig } from '@/lib/quiz-modes';
 import { FEATURES } from '@/lib/feature-flags';
 import {
@@ -383,6 +383,9 @@ export default function QuizPage() {
         [currentQuestion.id]: evaluationResult
       });
       recordAnswer(isCorrect);
+      if (FEATURES.LEITNER_MODE && studyCodeUuid) {
+        updateLeitnerStateForQuestion(studyCodeUuid, currentQuestion.id, isCorrect);
+      }
     }
   };
 
@@ -393,6 +396,9 @@ export default function QuizPage() {
     setEvaluationResults({ ...evaluationResults, [currentQuestion.id]: evaluation });
     setShowExplanation(true);
     recordAnswer(evaluation.isCorrect);
+    if (FEATURES.LEITNER_MODE && studyCodeUuid) {
+      updateLeitnerStateForQuestion(studyCodeUuid, currentQuestion.id, evaluation.isCorrect);
+    }
   };
 
   const fetchStudyGuide = async () => {
