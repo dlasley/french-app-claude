@@ -122,7 +122,7 @@ Options:
 **Interrelationships:**
 - Called by `regenerate.ts`
 - Uses `src/lib/learning-materials.ts` for content extraction
-- Uses `src/lib/topic-headings.ts` for topic-to-heading mapping
+- Uses `src/lib/units.ts` for topic-to-heading mapping
 
 ---
 
@@ -170,7 +170,7 @@ npx tsx scripts/suggest-unit-topics.ts "learnings/French 1 Unit 2.md" unit-2
 **Interrelationships:**
 - Called by `regenerate.ts`
 - Uses `lib/topic-utils.ts` for topic processing
-- Outputs suggested updates for `src/lib/units.ts` and `src/lib/topic-headings.ts`
+- Outputs suggested updates for `src/lib/units.ts`
 
 ---
 
@@ -218,9 +218,9 @@ npx tsx scripts/test-db-connection.ts
 ### lib/topic-utils.ts
 
 Shared utilities for topic processing:
-- Topic name normalization
-- Heading pattern matching
-- Topic-to-content mapping helpers
+- `getAllTopics()` - Collects all topic names across units
+- `normalizeTopic()` - Normalizes topic names for comparison
+- `findSimilarTopics()` - AI-powered fuzzy topic matching
 
 Used by: `suggest-unit-topics.ts`
 
@@ -228,12 +228,34 @@ Used by: `suggest-unit-topics.ts`
 
 Pattern-based inference of writing question subtypes from question text:
 - `inferWritingType(text)` - Returns writing subtype based on keyword patterns
-- `isValidWritingType(type)` - Type guard for validation
-- `getValidatedWritingType(aiType, text)` - Validates AI response with fallback
 
 Writing types: `translation`, `conjugation`, `question_formation`, `sentence_building`, `open_ended`
 
 Used by: `generate-questions.ts`
+
+### lib/db-queries.ts
+
+Shared database query utilities:
+- `createScriptSupabase()` - Initialize Supabase client from env vars
+- `fetchAllQuestions(supabase, selectFields?)` - Paginated fetch (bypasses 1000-row default limit)
+- `analyzeDistribution(questions)` - Count by type and writing subtype
+
+Used by: `plan-generation.ts`, `check-writing-questions.ts`
+
+### lib/config.ts
+
+Centralized configuration for pipeline scripts:
+- `MODELS` - Model IDs for PDF conversion, topic extraction, similarity, and question generation
+- `COST_PER_API_CALL` - Estimated cost per Haiku 4.5 API call
+
+Used by: `regenerate.ts`, `suggest-unit-topics.ts`, `generate-questions.ts`, `lib/topic-utils.ts`, `plan-generation.ts`
+
+### lib/file-updaters.ts
+
+Pure functions for auto-updating source files during new unit pipeline:
+- `insertUnitEntry(source, unitData)` - Insert a new unit entry into `units.ts`
+
+Used by: `regenerate.ts` (Step 2.5: auto-update files for new units)
 
 ### prompts/pdf-to-markdown.txt
 
