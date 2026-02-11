@@ -350,115 +350,71 @@ async function generateQuestionsForTopic(
       messages: [
         {
           role: 'user',
-          content: `You are a French language teacher creating practice questions for students.
+          content: `You are a French 1 teacher creating quiz questions about "${topic}".
 
-Based on the following learning materials about "${topic}", create ${numQuestions} practice questions at a ${difficulty} level.
+## Scope
+- Topic: ${topic}
+- Difficulty: ${difficulty}
+- This is a first-year French course (French 1)
 
-Learning Materials:
+## Reference Materials
+These materials show what has been taught for this topic. Use them to understand scope and emphasis, but you may also draw on standard French 1 curriculum knowledge for this topic.
+
 ${topicContent}
 
-CRITICAL: ONLY CREATE QUESTIONS ABOUT FRENCH LANGUAGE LEARNING
+## Difficulty Levels
 
-❌ ABSOLUTELY FORBIDDEN - DO NOT create questions about:
+**Beginner**: Recognition and recall
+- Translate single words or very short phrases
+- Identify correct translations from options
+- Recall basic vocabulary (e.g., "What is 'cat' in French?")
+- Simple true/false about word meanings
+- Fill-in-blank with a single common word
+- Writing: single sentence (translation or simple response)
 
-**Meta-Questions About Learning:**
-- "Making mistakes" in learning (whether it's good, bad, encouraged, discouraged, etc.)
-- "Language acquisition" principles or theories
-- "Growth mindset" or learning mindset concepts
-- "Willingness to learn" or motivation concepts
-- "Most important factor for success" in language learning
-- "Effort and success" relationships in learning
-- "Consistency is key" or similar learning philosophy
-- "Practice makes perfect" or similar learning maxims
-- How to study, learning strategies, or study techniques
-- Whether something is "part of the learning process"
+**Intermediate**: Application in simple contexts
+- Complete sentences requiring correct conjugation or article choice
+- Translate short sentences (5-8 words)
+- Choose the grammatically correct option from choices
+- Apply rules in context (e.g., choose tu vs. vous for a scenario)
+- Fill-in-blank requiring grammar knowledge (agreement, conjugation)
+- Writing: 1-2 sentences (translation with grammar, short response)
 
-**Teacher/Course Administration:**
-- "Monsieur " or "M. " or any specific teacher name
-- Teacher's personal life, hobbies, background, or interests
-- How long the teacher lived anywhere or what the teacher likes
-- Teacher's books, accomplishments, or personal achievements
-- "four key skills" or "key skills" curriculum structure
-- Course structure, class structure, or curriculum design
-- Classroom technology rules (Chromebooks, computers, phones, tablets)
-- Daily materials or supplies needed for class (journals, pencils, notebooks)
-- Grading policies, homework policies, or assessment methods
-- Activities that will happen in class (role plays, potlucks, events)
-- Classroom behavior policies or rules
-- What the class/course includes or excludes
+**Advanced**: Synthesis and production
+- Translate longer sentences combining multiple grammar concepts
+- Construct original sentences using specified vocabulary/grammar
+- Short dialogues (2-3 exchanges) demonstrating a concept
+- Questions combining two concepts (e.g., negation + conjugation)
+- Identify and explain errors in French sentences
+- Writing: 2-3 sentences (dialogue exchanges, compound responses)
 
-❌ If you see any of the above topics in the learning materials:
-- DO NOT create questions about them
-- SKIP that content entirely
-- IGNORE all meta-information about learning, teaching, or the course itself
+IMPORTANT: "Advanced" means advanced FOR FRENCH 1. All vocabulary and grammar must stay within first-year French. Never require:
+- Subjunctive, conditional, passé composé, imparfait
+- Abstract/academic vocabulary (e.g., "global job market", "relevant")
+- Passive voice
+- Complex relative clauses beyond basic qui/que
 
-✅ ONLY create questions testing knowledge of:
-- French vocabulary: nouns, verbs, adjectives, common expressions
-- French grammar: verb conjugations, articles, pronouns, sentence structure
-- French language usage: formal vs informal, proper usage contexts
-- French culture: geography, traditions, customs, francophone world
-- Practical communication: greetings, conversations, asking questions in French
-- Reading and writing in French
-- Translation between French and English
+## Question Quality Rules
 
-If the learning materials contain administrative or course-related content, IGNORE IT COMPLETELY and only generate questions from the actual French language content.
+1. Each question tests exactly ONE concept
+2. Each question has exactly ONE defensible correct answer
+3. Questions must be about "${topic}" — not other topics that happen to appear in the materials
+4. All French in questions and answers must be grammatically correct
+5. Explanations in English, 1-2 sentences
+6. NEVER include the answer in the question text:
+   - No French answer in parenthetical hints
+   - No "Use the structure: '[answer]'" patterns
+   - Transformation questions must require meaningful work
 
-IMPORTANT INSTRUCTIONS:
-1. Create EXACTLY ${numQuestions} questions
-2. ${questionType ? `Create ONLY "${questionType}" type questions` : 'Mix question types: multiple-choice, fill-in-blank, true-false, writing'}
-3. Make questions appropriate for ${difficulty} level students
-4. Include clear, unambiguous correct answers
-5. Add brief explanations for the correct answers IN ENGLISH (NOT in French)
-6. NEVER include the answer (or a substantial part of it) in the question text:
-   - Do NOT put the French answer in parentheses as a hint (e.g., "(Use the phrase 'Il est quel jour?')")
-   - Do NOT use "Use the structure: '[answer]'" where the structure IS the expected answer
-   - For transformation/combination questions, the correct answer must require meaningful work beyond trivially prepending a word or adding punctuation
-   - If the question quotes French text, the correct answer must NOT be that same text with minor additions
-7. Return ONLY valid JSON matching this exact format:
+## Type-Specific Rules
 
-{
-  "questions": [
-    {
-      "id": "q1",
-      "question": "Question text here?",
-      "type": "multiple-choice",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correctAnswer": "Option B",
-      "explanation": "Brief explanation in English of why this is correct"
-    },
-    {
-      "id": "q2",
-      "question": "Je _____ français.",
-      "type": "fill-in-blank",
-      "correctAnswer": "parle",
-      "explanation": "English explanation here"
-    },
-    {
-      "id": "q3",
-      "question": "Translate to French: 'We speak French.'",
-      "type": "writing",
-      "correctAnswer": "Nous parlons français.",
-      "explanation": "Uses 'nous' form of parler (parlons) with the language"
-    }
-  ]
-}
+**multiple-choice**: 4 plausible options. Distractors should test common mistakes (wrong gender, wrong conjugation, false cognates). correctAnswer must exactly match one option.
 
-${questionType ? `Question type: "${questionType}" ONLY - do not create any other type` : 'Question type options: "multiple-choice", "fill-in-blank", "true-false", "writing"'}
+**true-false**: Clearly, unambiguously true or false statements. options: ["Vrai", "Faux"]. No trick statements based on technicalities.
 
-For fill-in-blank questions:
-- Use underscores like: "Je _____ français." (I speak French)
-- correctAnswer should be the word(s) to fill in
-- No options array needed
-- Explanation must be in English
+**fill-in-blank**: Question MUST contain a sentence with "_____" replacing one or more words. Do NOT include options — the student types their answer. Number of blanks by difficulty: beginner=1 blank, intermediate=1-2 blanks, advanced=2-3 blanks. correctAnswer lists filled words separated by spaces. Example: "Je _____ français." → correctAnswer: "parle"
 
-For true-false questions:
-- options should be ["Vrai", "Faux"]
-- correctAnswer should be "Vrai" or "Faux"
-
-For writing questions:
-- These are longer-form responses requiring full sentences or translations
-- correctAnswer should be the expected response (accept reasonable variations)
-- No options array needed
+**writing**: Translations, sentence construction, or short responses. Sentence limits by difficulty: beginner=1 sentence, intermediate=1-2 sentences, advanced=2-3 sentences. correctAnswer is the expected response.
 ${writingType ? `
 IMPORTANT: Create ONLY "${writingType}" type writing questions:
 ${writingType === 'translation' ? `- Translation: "Translate to French: '...'"
@@ -476,7 +432,34 @@ ${writingType === 'sentence_building' ? `- Sentence Building: Ask students to co
 ${writingType === 'open_ended' ? `- Open-ended: Creative writing, dialogues, descriptions
 - Example: "Write a short dialogue between two people meeting for the first time."
 - Example: "Describe your classroom in 3-4 sentences using classroom vocabulary."` : ''}
-` : `- Good for: translations, sentence construction, conjugation in context`}
+` : ''}
+
+## Forbidden Content — DO NOT create questions about:
+- Learning philosophy (growth mindset, making mistakes, study tips, language acquisition)
+- Teacher information (Monsieur , teacher's background, personal life)
+- Course administration (grading, homework, classroom rules, technology policies)
+- Class structure, curriculum design, or daily materials needed
+- Whether something was "mentioned in the materials" or "listed in the vocabulary"
+
+If the learning materials contain this type of content, IGNORE IT and generate questions only from actual French language content.
+
+## Output
+Create EXACTLY ${numQuestions} questions.
+${questionType ? `Type: "${questionType}" ONLY — do not create any other type.` : 'Mix types: multiple-choice, fill-in-blank, true-false, writing.'}
+
+Return ONLY valid JSON:
+{
+  "questions": [
+    {
+      "id": "q1",
+      "question": "Question text here?",
+      "type": "multiple-choice",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctAnswer": "Option B",
+      "explanation": "Brief English explanation"
+    }
+  ]
+}
 
 Return ONLY the JSON, no additional text.`,
         },
@@ -542,6 +525,12 @@ Return ONLY the JSON, no additional text.`,
       if (writingDrift > 0) {
         console.log(`    ⚠️  Filtered out ${writingDrift} question(s) with wrong writing type (writing type drift)`);
       }
+    }
+
+    // Enforce exact question count — handles AI self-correction duplicates
+    if (validQuestions.length > numQuestions) {
+      console.log(`    ⚠️  AI returned ${validQuestions.length} questions (expected ${numQuestions}), truncating`);
+      validQuestions = validQuestions.slice(0, numQuestions);
     }
 
     return validQuestions;

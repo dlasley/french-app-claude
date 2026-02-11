@@ -83,17 +83,25 @@ export function extractTopicContent(materials: string, topic: string): string {
   // Fallback: try heading patterns from centralized topic-headings mapping
   const aliases = getTopicHeadings(topic);
 
-  // Try matching with aliases
+  // Collect ALL matching sections via alias (multi-section extraction)
+  const collectedSections: string[] = [];
+  const matchedHeadingIndices = new Set<number>();
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
 
     if (headingMatch) {
+      if (headingMatch[1].length === 1) continue; // Skip document-level headings
       const headingText = headingMatch[2].toLowerCase();
-      const hasAlias = aliases.some(alias => headingText.includes(alias));
+      const hasAlias = aliases.some(alias => {
+        const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(?<![a-zA-ZÀ-ÿ])${escaped}(?![a-zA-ZÀ-ÿ])`, 'i');
+        return regex.test(headingText);
+      });
 
-      if (hasAlias) {
-        // Found a match via alias - extract this section
+      if (hasAlias && !matchedHeadingIndices.has(i)) {
+        matchedHeadingIndices.add(i);
         const level = headingMatch[1].length;
         const sectionLines: string[] = [line];
 
@@ -107,11 +115,16 @@ export function extractTopicContent(materials: string, topic: string): string {
         }
 
         if (sectionLines.length > 10) {
-          console.log(`    ℹ️  Found topic "${topic}" via alias match in heading`);
-          return sectionLines.join('\n');
+          collectedSections.push(sectionLines.join('\n'));
         }
       }
     }
+  }
+
+  if (collectedSections.length > 0) {
+    const count = collectedSections.length;
+    console.log(`    ℹ️  Found topic "${topic}" via alias match (${count} section${count > 1 ? 's' : ''})`);
+    return collectedSections.join('\n\n---\n\n');
   }
 
   // No match found - log warning and return empty to trigger skip

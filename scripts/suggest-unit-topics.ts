@@ -8,6 +8,7 @@
  * 4. Run generate-questions.ts for the unit
  *
  * Run with: npx tsx scripts/suggest-unit-topics.ts <markdown-file> <unit-id>
+ *           npx tsx scripts/suggest-unit-topics.ts --consolidate
  */
 
 import { config } from 'dotenv';
@@ -23,6 +24,7 @@ import {
   getAllTopics,
   findPotentialDuplicates,
   checkTopicSimilarity,
+  TopicSimilarity,
 } from './lib/topic-utils';
 
 const anthropic = new Anthropic({
@@ -281,17 +283,96 @@ async function logNewHeadingMappings(
 }
 
 /**
+ * Cross-unit topic consolidation.
+ * Identifies duplicate/overlapping topics across all units.
+ */
+async function consolidateAllTopics() {
+  console.log('╔════════════════════════════════════════════════════════════╗');
+  console.log('║           CROSS-UNIT TOPIC CONSOLIDATION                   ║');
+  console.log('╚════════════════════════════════════════════════════════════╝\n');
+
+  const allTopics = getAllTopics();
+  const topicNames = Array.from(allTopics.keys());
+
+  console.log(`📋 Analyzing ${topicNames.length} topics across ${units.length} units...\n`);
+
+  // Fast pass: find candidate pairs via string matching
+  const candidates: { t1: string; t2: string; u1: string; u2: string }[] = [];
+  for (let i = 0; i < topicNames.length; i++) {
+    for (let j = i + 1; j < topicNames.length; j++) {
+      const dupes = findPotentialDuplicates(topicNames[i], [topicNames[j]]);
+      if (dupes.length > 0) {
+        candidates.push({
+          t1: topicNames[i], t2: topicNames[j],
+          u1: allTopics.get(topicNames[i])!,
+          u2: allTopics.get(topicNames[j])!,
+        });
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    console.log('✅ No potential duplicates found across units.');
+    return;
+  }
+
+  console.log(`🔍 Found ${candidates.length} candidate pair(s). Checking with AI...\n`);
+
+  const results: TopicSimilarity[] = [];
+  for (const pair of candidates) {
+    const sim = await checkTopicSimilarity(anthropic, pair.t1, pair.t2);
+    results.push(sim);
+
+    const icon = sim.similarity === 'identical' ? '🔴'
+      : sim.similarity === 'overlapping' ? '🟡'
+      : sim.similarity === 'related' ? '🔵' : '⚪';
+    console.log(`${icon} ${pair.t1} (${pair.u1}) ↔ ${pair.t2} (${pair.u2})`);
+    console.log(`   ${sim.similarity}: ${sim.explanation}`);
+    if (sim.suggestedName) {
+      console.log(`   → ${sim.recommendation}: "${sim.suggestedName}"`);
+    }
+    console.log();
+  }
+
+  // Summary
+  const identical = results.filter(r => r.similarity === 'identical');
+  const overlapping = results.filter(r => r.similarity === 'overlapping');
+
+  console.log('═'.repeat(60));
+  console.log('CONSOLIDATION SUMMARY');
+  console.log('═'.repeat(60));
+  console.log(`  Identical (should merge): ${identical.length}`);
+  console.log(`  Overlapping (review):     ${overlapping.length}`);
+  console.log(`  Related (keep both):      ${results.filter(r => r.similarity === 'related').length}`);
+  console.log(`  Distinct (false alarm):   ${results.filter(r => r.similarity === 'distinct').length}`);
+
+  if (identical.length > 0 || overlapping.length > 0) {
+    console.log('\n⚠️  Action needed: review identical/overlapping topics in units.ts');
+  } else {
+    console.log('\n✅ No consolidation needed.');
+  }
+}
+
+/**
  * Main function
  */
 async function main() {
   const args = process.argv.slice(2);
 
+  // Standalone consolidation mode
+  if (args[0] === '--consolidate') {
+    await consolidateAllTopics();
+    return;
+  }
+
   if (args.length < 2) {
     console.error('Usage: npx tsx scripts/suggest-unit-topics.ts <markdown-file> <unit-id>');
+    console.error('       npx tsx scripts/suggest-unit-topics.ts --consolidate');
     console.error('');
     console.error('Examples:');
     console.error('  npx tsx scripts/suggest-unit-topics.ts learnings/French\\ 1\\ Unit\\ 4.md unit-4');
     console.error('  npx tsx scripts/suggest-unit-topics.ts learnings/test-conversions/unit-2-test.md unit-2');
+    console.error('  npx tsx scripts/suggest-unit-topics.ts --consolidate');
     process.exit(1);
   }
 

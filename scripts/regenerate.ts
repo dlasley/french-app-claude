@@ -994,6 +994,16 @@ async function main() {
     for (const unit of units) {
       await runPipelineForUnit(unit.id, options);
     }
+
+    // Post-processing: cross-unit topic consolidation
+    console.log('\n┌─────────────────────────────────────────────────────────────┐');
+    console.log('│  POST: Cross-Unit Topic Consolidation                      │');
+    console.log('└─────────────────────────────────────────────────────────────┘\n');
+
+    const consolidationResult = runScript('scripts/suggest-unit-topics.ts', ['--consolidate'], options.dryRun);
+    if (consolidationResult.output) {
+      console.log(consolidationResult.output);
+    }
   } else {
     // Validate unit exists or is a valid new unit
     const existingUnit = units.find(u => u.id === options.unitId);
