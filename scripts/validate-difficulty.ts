@@ -76,7 +76,7 @@ async function classifyQuestion(q: QuestionRow): Promise<string> {
     : `${q.question}\nAnswer: ${q.correct_answer}`;
 
   const response = await anthropic.messages.create({
-    model: MODELS.questionGeneration,
+    model: MODELS.questionGenerationStructured,
     max_tokens: 20,
     messages: [
       { role: 'user', content: `${RUBRIC}\n\nQuestion (${q.type}, topic: ${q.topic}):\n${questionDesc}` },

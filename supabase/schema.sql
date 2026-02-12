@@ -95,6 +95,7 @@ CREATE TABLE questions (
   batch_id TEXT,                             -- Generation batch identifier
   source_file TEXT,                          -- Learning material source
   generated_by TEXT,                         -- Model ID that generated this question (per-question for multi-model support)
+  quality_status TEXT DEFAULT 'active' CHECK (quality_status IN ('active', 'flagged')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -109,6 +110,7 @@ CREATE INDEX idx_questions_batch_id ON questions(batch_id);
 CREATE INDEX idx_questions_generated_by ON questions(generated_by);
 CREATE INDEX idx_questions_unit_topic_diff ON questions(unit_id, topic, difficulty);
 CREATE INDEX idx_questions_unit_type ON questions(unit_id, type);
+CREATE INDEX idx_questions_quality_status ON questions(quality_status);
 
 -- Batches Metadata Table
 -- Tracks provenance for each question generation batch run
@@ -264,6 +266,23 @@ CREATE TRIGGER questions_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_questions_updated_at();
 
+-- Prevent accidental deletion of flagged questions
+-- Flagged questions must be preserved so their content_hash prevents re-insertion
+CREATE OR REPLACE FUNCTION prevent_flagged_deletion()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.quality_status = 'flagged' THEN
+    RAISE EXCEPTION 'Cannot delete flagged question %. Change quality_status to ''active'' first.', OLD.id;
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER protect_flagged_questions
+  BEFORE DELETE ON questions
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_flagged_deletion();
+
 -- Row Level Security (RLS) Policies
 -- Enable RLS on all tables
 ALTER TABLE study_codes ENABLE ROW LEVEL SECURITY;
@@ -359,6 +378,7 @@ COMMENT ON COLUMN questions.content_hash IS 'MD5 hash of normalized question con
 COMMENT ON COLUMN questions.batch_id IS 'Identifies which generation batch created this question (e.g., 2026-02-04_unit3)';
 COMMENT ON COLUMN questions.source_file IS 'Path to the markdown learning file used to generate this question';
 COMMENT ON COLUMN questions.generated_by IS 'Model ID that generated this question (e.g., claude-haiku-4-5-20251001). Per-question for multi-model support.';
+COMMENT ON COLUMN questions.quality_status IS 'Audit status: active (serves to students) or flagged (excluded from quizzes, protected from deletion)';
 COMMENT ON TABLE batches IS 'Metadata for each question generation batch run. Tracks pipeline state, model, config, and results.';
 COMMENT ON COLUMN question_results.score IS 'Evaluation score 0-100. NULL for legacy data. MCQ/TF are always 0 or 100. Typed answers use fuzzy/API evaluation score.';
 COMMENT ON TABLE leitner_state IS 'Leitner spaced repetition box assignments per student per question';

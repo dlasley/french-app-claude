@@ -61,6 +61,7 @@ export async function loadAllQuestions(): Promise<Question[]> {
       const { data, error } = await supabase!
         .from('questions')
         .select('*')
+        .eq('quality_status', 'active')
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
@@ -108,6 +109,7 @@ export async function loadUnitQuestions(unitId: string): Promise<Question[]> {
       const { data, error } = await supabase!
         .from('questions')
         .select('*')
+        .eq('quality_status', 'active')
         .or(`unit_id.eq.${unitId},unit_id.eq.all`)
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);

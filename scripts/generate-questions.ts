@@ -12,14 +12,18 @@
  *   --dry-run               Show what would be generated without actually generating
  *   --batch-id <id>         Custom batch ID (default: auto-generated from date)
  *   --source-file <path>    Source learning material file path for tracking
- *   --model <model-id>      Override generation model (default: from config)
- *                            Note: --model may be deprecated in favor of per-question
- *                            model selection when multi-model generation is implemented.
+ *   --model <model-id>      Override generation model for ALL types (disables hybrid mode)
+ *   --skip-validation       Skip answer validation pass (faster, no variation generation)
+ *
+ * Hybrid Model Generation:
+ *   By default, uses Haiku for MCQ/T-F and Sonnet for fill-in-blank/writing.
+ *   --model overrides this and uses a single model for all types.
+ *   --type auto-selects the appropriate model for that type.
  *
  * Examples:
- *   npx tsx scripts/generate-questions.ts --unit unit-3 --sync-db
- *   npx tsx scripts/generate-questions.ts --unit unit-3 --topic "Numbers 0-20" --difficulty beginner
- *   npx tsx scripts/generate-questions.ts --unit unit-2 --count 25   # More questions for broad topics
+ *   npx tsx scripts/generate-questions.ts --unit unit-3 --sync-db           # Hybrid mode
+ *   npx tsx scripts/generate-questions.ts --unit unit-3 --type writing      # Sonnet only
+ *   npx tsx scripts/generate-questions.ts --unit unit-3 --model claude-haiku-4-5-20251001  # Force Haiku
  *   npx tsx scripts/generate-questions.ts --sync-db --dry-run
  */
 
@@ -33,7 +37,7 @@ import crypto from 'crypto';
 import { units } from '../src/lib/units';
 import { loadUnitMaterials, extractTopicContent } from '../src/lib/learning-materials';
 import { inferWritingType, WritingType } from './lib/writing-type-inference';
-import { MODELS } from './lib/config';
+import { MODELS, STRUCTURED_TYPES, TYPED_TYPES, getModelForType, QuestionType } from './lib/config';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -49,6 +53,7 @@ interface Question {
   unitId: string;
   topic: string;
   difficulty: 'beginner' | 'intermediate' | 'advanced';
+  acceptableVariations?: string[];
   contentHash?: string;
   batchId?: string;
   sourceFile?: string;
@@ -65,9 +70,9 @@ interface CLIOptions {
   dryRun: boolean;
   batchId: string;
   sourceFile?: string;
-  // Note: --model may be deprecated in favor of per-question model selection
-  // when multi-model generation is implemented.
+  // Override: uses a single model for all types (disables hybrid mode)
   model?: string;
+  skipValidation?: boolean;
 }
 
 const DIFFICULTIES: ('beginner' | 'intermediate' | 'advanced')[] = ['beginner', 'intermediate', 'advanced'];
@@ -85,14 +90,14 @@ const EXEMPLAR_POOL: Record<string, Exemplar[]> = {
   ],
   intermediate: [
     { type: 'fill-in-blank', question: 'Nous ______ une comédie avec nos amis.', answer: 'voyons' },
-    { type: 'fill-in-blank', question: 'Tu _____ _____ roller? Non, je _____ _____ roller.', answer: 'aimes faire / n\'aime pas faire' },
+    { type: 'fill-in-blank', question: 'Tu _____ le football et il _____ le tennis.', answer: 'aimes préfère' },
     { type: 'writing', question: 'Conjugate the verb \'jouer\' for \'je\' in a complete sentence about playing soccer.', answer: 'Je joue au foot.' },
     { type: 'writing', question: 'Translate to French: \'We don\'t like swimming.\'', answer: 'Nous n\'aimons pas nager.' },
     { type: 'multiple-choice', question: 'Choose the correct sentence: "Je suis faim" / "J\'ai faim" / "Je fais faim" / "Je mange faim"', answer: 'J\'ai faim' },
   ],
   advanced: [
-    { type: 'fill-in-blank', question: 'Après le sport, nous _____ et nous _____ une boisson froide.', answer: 'avons soif / buvons' },
-    { type: 'fill-in-blank', question: 'En Afrique, le français est une langue officielle _____ 29 pays. Le Sénégal et le Cameroun sont _____ ces pays.', answer: 'dans / parmi' },
+    { type: 'fill-in-blank', question: 'Nous _____ soif et nous _____ une boisson froide.', answer: 'avons buvons' },
+    { type: 'fill-in-blank', question: 'Le français est une langue officielle _____ 29 pays et le Sénégal est _____ ces pays.', answer: 'dans parmi' },
     { type: 'writing', question: 'Write three sentences using different subject pronouns (tu, on, elles) with \'aimer\' or \'préférer\' conjugated correctly, each including an intensity adverb.', answer: 'Tu aimes un peu danser. On préfère bien la musique. Elles aiment beaucoup les blogs.' },
     { type: 'writing', question: 'Write two sentences ordering at a café: one using a partitive article and one using negation.', answer: 'Je voudrais du café et un croissant. Je ne veux pas de thé.' },
     { type: 'multiple-choice', question: 'Questions requiring knowledge of two grammar rules to identify the correct answer', answer: '(combined concepts)' },
@@ -201,6 +206,9 @@ function parseArgs(): CLIOptions {
       case '--model':
         options.model = args[++i];
         break;
+      case '--skip-validation':
+        options.skipValidation = true;
+        break;
       case '--help':
       case '-h':
         printHelp();
@@ -234,14 +242,19 @@ Options:
   --dry-run               Show what would be generated without actually generating
   --batch-id <id>         Custom batch ID (default: auto-generated)
   --source-file <path>    Source learning material file path for tracking
-  --model <model-id>      Override generation model (default: from config)
+  --model <model-id>      Override model for ALL types (disables hybrid mode)
+  --skip-validation       Skip answer validation (faster, no variation generation)
   --help, -h              Show this help message
 
+Hybrid Model Generation:
+  By default, uses Haiku for MCQ/T-F and Sonnet for fill-in-blank/writing.
+  --model overrides this and uses a single model for all types.
+  --type auto-selects the appropriate model for that type.
+
 Examples:
-  npx tsx scripts/generate-questions.ts --unit unit-3 --sync-db
-  npx tsx scripts/generate-questions.ts --unit unit-3 --topic "Numbers 0-20"
-  npx tsx scripts/generate-questions.ts --unit unit-2 --count 25   # More questions for broad topics
-  npx tsx scripts/generate-questions.ts --type writing --sync-db   # Add only writing questions
+  npx tsx scripts/generate-questions.ts --unit unit-3 --sync-db           # Hybrid mode
+  npx tsx scripts/generate-questions.ts --unit unit-3 --type writing      # Sonnet auto-selected
+  npx tsx scripts/generate-questions.ts --model claude-haiku-4-5-20251001 # Force single model
   npx tsx scripts/generate-questions.ts --type writing --writing-type conjugation --sync-db
   npx tsx scripts/generate-questions.ts --sync-db --dry-run
   `);
@@ -338,7 +351,7 @@ async function syncToDatabase(
       difficulty: q.difficulty,
       type: q.type,
       options: isChoiceType ? q.options : null,
-      acceptable_variations: isTypedType ? (q.options || []) : [],
+      acceptable_variations: isTypedType ? (q.acceptableVariations || []) : [],
       writing_type: isWriting ? inferWritingType(q.question) : null,
       explanation: q.explanation,
       hints: [],
@@ -405,6 +418,188 @@ function isMetaQuestion(question: Question): boolean {
   return metaPatterns.some(pattern => pattern.test(combinedText));
 }
 
+/**
+ * Structural validation — fast checks that reject obviously malformed questions (no API call).
+ */
+function structuralValidation(questions: Question[]): { valid: Question[]; rejected: { question: Question; reason: string }[] } {
+  const valid: Question[] = [];
+  const rejected: { question: Question; reason: string }[] = [];
+
+  for (const q of questions) {
+    switch (q.type) {
+      case 'multiple-choice':
+        if (!q.options || q.options.length !== 4) {
+          rejected.push({ question: q, reason: 'MCQ must have exactly 4 options' });
+        } else if (!q.options.includes(q.correctAnswer)) {
+          rejected.push({ question: q, reason: 'MCQ correctAnswer not in options' });
+        } else if (new Set(q.options).size !== q.options.length) {
+          rejected.push({ question: q, reason: 'MCQ has duplicate options' });
+        } else {
+          valid.push(q);
+        }
+        break;
+      case 'true-false':
+        if (!q.options || !['Vrai', 'Faux'].every(o => q.options!.includes(o))) {
+          rejected.push({ question: q, reason: 'T/F options must be ["Vrai", "Faux"]' });
+        } else if (!['Vrai', 'Faux'].includes(q.correctAnswer)) {
+          rejected.push({ question: q, reason: 'T/F correctAnswer must be Vrai or Faux' });
+        } else {
+          valid.push(q);
+        }
+        break;
+      case 'fill-in-blank': {
+        const blankCount = (q.question.match(/_{3,}/g) || []).length;
+        const answerTokens = q.correctAnswer.trim().split(/\s+/).length;
+        if (!q.question.includes('_____')) {
+          rejected.push({ question: q, reason: 'Fill-in-blank must contain _____' });
+        } else if (q.correctAnswer.length < 1) {
+          rejected.push({ question: q, reason: 'Fill-in-blank answer is empty' });
+        } else if (blankCount > 1 && answerTokens !== blankCount) {
+          rejected.push({ question: q, reason: `Fill-in-blank has ${blankCount} blanks but ${answerTokens} answer tokens` });
+        } else {
+          valid.push(q);
+        }
+        break;
+      }
+      case 'writing':
+        if (q.correctAnswer.length < 5) {
+          rejected.push({ question: q, reason: 'Writing answer too short (<5 chars)' });
+        } else {
+          valid.push(q);
+        }
+        break;
+      default:
+        valid.push(q);
+    }
+  }
+
+  return { valid, rejected };
+}
+
+const VALIDATION_PROMPT = `You are a French language expert validating quiz questions for a French 1 (beginner) course.
+
+For each question below, evaluate whether the provided correct answer is actually correct.
+
+## French Grammar Reference — these are all CORRECT French
+
+**Articles & Partitives**
+- Definite articles for general preferences: "J'aime les pommes" (NOT "J'aime des pommes")
+- Partitive after negation becomes "de": "Je ne mange pas de pommes" (NOT "pas des pommes")
+- Mandatory contractions: à+le→au, à+les→aux, de+le→du, de+les→des
+- No article after "en" for countries/continents: "en France" (NOT "en la France")
+
+**Conjugation & Pronouns**
+- "On" ALWAYS takes 3rd person singular: "on aime", "on mange" — even when meaning "we"
+- Stressed pronouns after prepositions: "avec moi" (NOT "avec je"), "pour toi", "chez lui"
+- Conjugation-only answers (without subject pronouns) are valid in fill-in-blank: "mangeons" for "nous _____"
+
+**Elision**
+- Before vowel sounds and mute h: j'aime, l'école, l'homme, n'aime, d'accord
+- NOT before consonants: "la liberté" (NOT "l'liberté"), "le livre" (NOT "l'livre")
+- "Le haricot" (aspirated h, no elision)
+
+**Expressions**
+- "avoir" for physical states: avoir faim, avoir soif, avoir chaud (NOT "être faim")
+- "boire" for beverages: "boire du café" (NOT "manger du café")
+- Days of the week NOT capitalized: "lundi", "mardi"
+
+## Fill-in-blank Format
+- Each "_____" in the question represents exactly ONE word
+- correctAnswer is space-separated: one word per blank, in order of appearance
+- Example: "Tu _____ le foot et il _____ le tennis." → correctAnswer: "aimes préfère"
+- If blank count does not match answer word count, mark answer_valid: false
+- When generating acceptable_variations for fill-in-blank, maintain the same space-separated format (one word per blank, same order)
+
+## Instructions
+
+For each question:
+1. Check if the correct answer is genuinely correct for the question asked
+2. Check if the French grammar is correct in both question and answer
+3. For fill-in-blank: also verify the number of space-separated answer words matches the number of "_____" blanks
+4. For fill-in-blank and writing questions that PASS: generate 2-3 acceptable alternative answers that a French teacher would also accept (different valid phrasings, word order variations, accent variants)
+5. For multiple-choice and true-false questions: no variations needed
+
+Respond with ONLY valid JSON (no markdown, no code fences):
+{"results": [{"id": "q1", "answer_valid": true, "acceptable_variations": ["var1", "var2"], "notes": "OK"}, ...]}
+
+Set answer_valid to false ONLY if the answer is factually wrong or has a grammar error. Do NOT reject questions just because multiple answers could work — that's expected for typed-answer questions.`;
+
+interface ValidationResult {
+  id: string;
+  answer_valid: boolean;
+  acceptable_variations: string[];
+  notes: string;
+}
+
+/**
+ * AI-powered answer validation + acceptable variation generation.
+ * Batches questions in groups of ~5 for efficiency.
+ * Returns only questions that pass validation, with acceptableVariations populated.
+ */
+async function validateAnswers(questions: Question[]): Promise<{ valid: Question[]; rejected: { question: Question; reason: string }[] }> {
+  if (questions.length === 0) return { valid: [], rejected: [] };
+
+  const BATCH_SIZE = 5;
+  const allValid: Question[] = [];
+  const allRejected: { question: Question; reason: string }[] = [];
+
+  for (let i = 0; i < questions.length; i += BATCH_SIZE) {
+    const batch = questions.slice(i, i + BATCH_SIZE);
+
+    const questionsText = batch.map((q, idx) => {
+      const optionsText = q.options ? `\nOptions: ${q.options.join(' / ')}` : '';
+      return `Question ${idx + 1} (${q.type}, ${q.difficulty}):
+Q: ${q.question}${optionsText}
+A: ${q.correctAnswer}`;
+    }).join('\n\n');
+
+    try {
+      const message = await anthropic.messages.create({
+        model: MODELS.answerValidation,
+        max_tokens: 2000,
+        messages: [
+          { role: 'user', content: `${VALIDATION_PROMPT}\n\n---\n\n${questionsText}` },
+        ],
+      });
+
+      const responseText = (message.content[0] as { type: 'text'; text: string }).text;
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.log(`    ⚠️  Validation: parse error, passing batch through`);
+        allValid.push(...batch);
+        continue;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0].replace(/,(\s*[}\]])/g, '$1'));
+      const results: ValidationResult[] = parsed.results;
+
+      for (let j = 0; j < batch.length; j++) {
+        const q = batch[j];
+        const result = results[j];
+
+        if (!result) {
+          allValid.push(q);
+          continue;
+        }
+
+        if (result.answer_valid) {
+          if ((q.type === 'fill-in-blank' || q.type === 'writing') && result.acceptable_variations?.length > 0) {
+            q.acceptableVariations = result.acceptable_variations;
+          }
+          allValid.push(q);
+        } else {
+          allRejected.push({ question: q, reason: result.notes || 'Answer incorrect' });
+        }
+      }
+    } catch (error) {
+      console.log(`    ⚠️  Validation API error, passing batch through: ${error instanceof Error ? error.message : 'unknown'}`);
+      allValid.push(...batch);
+    }
+  }
+
+  return { valid: allValid, rejected: allRejected };
+}
+
 async function generateQuestionsForTopic(
   unitId: string,
   topic: string,
@@ -412,9 +607,11 @@ async function generateQuestionsForTopic(
   numQuestions: number,
   questionType?: 'multiple-choice' | 'fill-in-blank' | 'true-false' | 'writing',
   writingType?: WritingType,
-  modelOverride?: string
+  modelOverride?: string,
+  allowedTypes?: QuestionType[],
+  skipValidation?: boolean
 ): Promise<Question[]> {
-  const typeLabel = questionType ? ` ${questionType}` : '';
+  const typeLabel = questionType ? ` ${questionType}` : allowedTypes ? ` [${allowedTypes.join('/')}]` : '';
   const subtypeLabel = writingType ? ` (${writingType})` : '';
   console.log(`  Generating ${numQuestions} ${difficulty}${typeLabel}${subtypeLabel} questions for: ${topic}`);
 
@@ -423,7 +620,7 @@ async function generateQuestionsForTopic(
     const topicContent = extractTopicContent(unitMaterials, topic);
 
     const message = await anthropic.messages.create({
-      model: modelOverride || MODELS.questionGeneration,
+      model: modelOverride || MODELS.questionGenerationStructured,
       max_tokens: 4000,
       messages: [
         {
@@ -497,7 +694,13 @@ IMPORTANT: "Advanced" means advanced FOR FRENCH 1. All vocabulary and grammar mu
 
 **true-false**: Clearly, unambiguously true or false statements. options: ["Vrai", "Faux"]. No trick statements based on technicalities.
 
-**fill-in-blank**: Question MUST contain a sentence with "_____" replacing one or more words. Do NOT include options — the student types their answer. Number of blanks by difficulty: beginner=1 blank, intermediate=1-2 blanks, advanced=2-3 blanks. correctAnswer lists filled words separated by spaces. Example: "Je _____ français." → correctAnswer: "parle"
+**fill-in-blank**: Question MUST contain a sentence with "_____" replacing one or more words. Do NOT include options — the student types their answer.
+IMPORTANT: Each "_____" represents EXACTLY ONE word. Do not create blanks that require multi-word answers. For negation (ne...pas), use two blanks: "Je _____ aime _____ le sport" → correctAnswer: "n' pas"
+Number of blanks by difficulty: beginner=1 blank, intermediate=1-2 blanks, advanced=2-3 blanks.
+correctAnswer: space-separated words, one per blank, in order of appearance. Examples:
+  - 1 blank: "Je _____ français." → correctAnswer: "parle"
+  - 2 blanks: "Tu _____ le foot et il _____ le tennis." → correctAnswer: "aimes préfère"
+  - 3 blanks: "Je _____ _____ _____ le roller." → correctAnswer: "ne fais pas"
 
 **writing**: Translations, sentence construction, or short responses. Sentence limits by difficulty: beginner=1 sentence, intermediate=1-2 sentences, advanced=2-3 sentences. correctAnswer is the expected response.
 ${writingType ? `
@@ -519,6 +722,31 @@ ${writingType === 'open_ended' ? `- Open-ended: Creative writing, dialogues, des
 - Example: "Describe your classroom in 3-4 sentences using classroom vocabulary."` : ''}
 ` : ''}
 
+## French Grammar Guardrails — MUST follow these rules
+
+All generated French must conform to these rules. Violations will cause the question to be rejected.
+
+**Articles & Partitives**
+- General preferences use DEFINITE articles: "J'aime les pommes" (NOT "J'aime des pommes")
+- After negation, du/de la/des ALWAYS becomes "de": "Je ne mange pas de pommes" (NOT "pas des pommes"), "Il n'y a pas de lait" (NOT "pas du lait")
+- Mandatory contractions: à+le→au, à+les→aux, de+le→du, de+les→des
+- No article after "en" for countries/continents: "en France" (NOT "en la France")
+
+**Conjugation & Pronouns**
+- "On" ALWAYS takes 3rd person singular: "on aime", "on mange" — even when meaning "we"
+- Stressed pronouns after prepositions: "avec moi" (NOT "avec je"), "pour toi", "chez lui"
+
+**Elision**
+- Mandatory before vowel sounds and mute h: j'aime, l'école, l'homme, n'aime, d'accord
+- Never before consonants: "la liberté" (NOT "l'liberté"), "le livre" (NOT "l'livre")
+- "Le haricot" (aspirated h — no elision)
+
+**Semantic Accuracy**
+- Use "boire" for beverages: "boire du café" (NOT "manger du café")
+- Use "avoir" for physical states: avoir faim, avoir soif, avoir chaud (NOT "être faim")
+- Do NOT tie day-of-week to specific calendar dates without year context (e.g., avoid "What day is January 15?")
+- Days of the week are NOT capitalized in French: "lundi", "mardi"
+
 ## Forbidden Content — DO NOT create questions about:
 - Learning philosophy (growth mindset, making mistakes, study tips, language acquisition)
 - Teacher information (Monsieur , teacher's background, personal life)
@@ -530,7 +758,7 @@ If the learning materials contain this type of content, IGNORE IT and generate q
 
 ## Output
 Create EXACTLY ${numQuestions} questions.
-${questionType ? `Type: "${questionType}" ONLY — do not create any other type.` : 'Mix types: multiple-choice, fill-in-blank, true-false, writing.'}
+${questionType ? `Type: "${questionType}" ONLY — do not create any other type.` : allowedTypes ? `Mix types: ${allowedTypes.join(', ')}. Do not create any other type.` : 'Mix types: multiple-choice, fill-in-blank, true-false, writing.'}
 
 Return ONLY valid JSON:
 {
@@ -599,6 +827,16 @@ Return ONLY the JSON, no additional text.`,
       }
     }
 
+    // Enforce type group constraint for hybrid model generation
+    if (allowedTypes) {
+      const beforeGroupFilter = validQuestions.length;
+      validQuestions = validQuestions.filter(q => (allowedTypes as string[]).includes(q.type));
+      const groupDrift = beforeGroupFilter - validQuestions.length;
+      if (groupDrift > 0) {
+        console.log(`    ⚠️  Filtered out ${groupDrift} question(s) outside type group (type drift)`);
+      }
+    }
+
     // Enforce writing type constraint when --writing-type flag is used
     if (writingType) {
       const beforeWritingFilter = validQuestions.length;
@@ -610,6 +848,32 @@ Return ONLY the JSON, no additional text.`,
       if (writingDrift > 0) {
         console.log(`    ⚠️  Filtered out ${writingDrift} question(s) with wrong writing type (writing type drift)`);
       }
+    }
+
+    // Answer validation + acceptable variation generation
+    if (!skipValidation && validQuestions.length > 0) {
+      // Step 1: Structural validation (no API call)
+      const structural = structuralValidation(validQuestions);
+      if (structural.rejected.length > 0) {
+        const reasons = structural.rejected.map(r => r.reason);
+        const summary = [...new Set(reasons)].join('; ');
+        console.log(`    ⚠️  Structural: rejected ${structural.rejected.length} (${summary})`);
+      }
+
+      // Step 2: AI answer validation + variation generation
+      const aiValidation = await validateAnswers(structural.valid);
+      if (aiValidation.rejected.length > 0) {
+        for (const r of aiValidation.rejected) {
+          console.log(`    ⚠️  Validation rejected: "${r.question.question.substring(0, 60)}..." — ${r.reason}`);
+        }
+      }
+
+      const withVariations = aiValidation.valid.filter(q => q.acceptableVariations && q.acceptableVariations.length > 0).length;
+      if (aiValidation.valid.length > 0) {
+        console.log(`    ✓  Validated ${aiValidation.valid.length} questions${withVariations > 0 ? ` (${withVariations} with variations)` : ''}`);
+      }
+
+      validQuestions = aiValidation.valid;
     }
 
     // Enforce exact question count — handles AI self-correction duplicates
@@ -635,7 +899,14 @@ async function generateAllQuestions(options: CLIOptions) {
   console.log(`   Sync to DB:  ${options.syncDb ? 'yes' : 'no'}`);
   console.log(`   Dry run:     ${options.dryRun ? 'yes' : 'no'}`);
   console.log(`   Batch ID:    ${options.batchId}`);
-  console.log(`   Model:       ${options.model || MODELS.questionGeneration}`);
+  if (options.model) {
+    console.log(`   Model:       ${options.model} (override)`);
+  } else if (options.questionType) {
+    console.log(`   Model:       ${getModelForType(options.questionType)} (auto for ${options.questionType})`);
+  } else {
+    console.log(`   Model:       hybrid (structured=${MODELS.questionGenerationStructured}, typed=${MODELS.questionGenerationTyped})`);
+  }
+  console.log(`   Validation:  ${options.skipValidation ? 'SKIPPED' : `on (${MODELS.answerValidation})`}`);
   if (options.sourceFile) {
     console.log(`   Source file: ${options.sourceFile}`);
   }
@@ -697,65 +968,85 @@ async function generateAllQuestions(options: CLIOptions) {
       for (const difficulty of difficultiesToProcess) {
         totalAttempted++;
 
+        // Determine generation passes: hybrid mode splits into structured + typed
+        const useHybridMode = !options.model && !options.questionType;
+        const passes: { model: string; count: number; questionType?: QuestionType; writingType?: WritingType; allowedTypes?: QuestionType[] }[] = useHybridMode
+          ? [
+              { model: MODELS.questionGenerationStructured, count: Math.ceil(options.count / 2), allowedTypes: [...STRUCTURED_TYPES] },
+              { model: MODELS.questionGenerationTyped, count: Math.ceil(options.count / 2), allowedTypes: [...TYPED_TYPES] },
+            ]
+          : [{
+              model: options.model || (options.questionType ? getModelForType(options.questionType) : MODELS.questionGenerationStructured),
+              count: options.count,
+              questionType: options.questionType as QuestionType | undefined,
+              writingType: options.writingType,
+            }];
+
         if (options.dryRun) {
-          const typeLabel = options.questionType ? ` ${options.questionType}` : '';
-          console.log(`  [DRY RUN] Would generate ${options.count} ${difficulty}${typeLabel} questions for: ${topic}`);
+          for (const pass of passes) {
+            const typeLabel = pass.questionType ? ` ${pass.questionType}` : pass.allowedTypes ? ` [${pass.allowedTypes.join('/')}]` : '';
+            const modelShort = pass.model.replace('claude-', '').split('-').slice(0, 2).join('-');
+            console.log(`  [DRY RUN] Would generate ${pass.count} ${difficulty}${typeLabel} questions for: ${topic} (${modelShort})`);
+          }
           continue;
         }
 
-        const questions = await generateQuestionsForTopic(
-          unit.id,
-          topic,
-          difficulty,
-          options.count,
-          options.questionType,
-          options.writingType,
-          options.model
-        );
+        for (const pass of passes) {
+          const questions = await generateQuestionsForTopic(
+            unit.id,
+            topic,
+            difficulty,
+            pass.count,
+            pass.questionType,
+            pass.writingType,
+            pass.model,
+            pass.allowedTypes,
+            options.skipValidation
+          );
 
-        if (questions.length > 0) {
-          // Add content hashes and batch metadata to each question
-          const questionsWithHashes = questions.map(q => ({
-            ...q,
-            contentHash: computeContentHash(q.question, q.correctAnswer, q.topic, q.difficulty),
-            batchId: options.batchId,
-            sourceFile: options.sourceFile,
-          }));
+          if (questions.length > 0) {
+            // Add content hashes and batch metadata to each question
+            const questionsWithHashes = questions.map(q => ({
+              ...q,
+              contentHash: computeContentHash(q.question, q.correctAnswer, q.topic, q.difficulty),
+              batchId: options.batchId,
+              sourceFile: options.sourceFile,
+            }));
 
-          allQuestions.push(...questionsWithHashes);
-          totalGenerated += questionsWithHashes.length;
+            allQuestions.push(...questionsWithHashes);
+            totalGenerated += questionsWithHashes.length;
 
-          // Sync to database if enabled
-          if (options.syncDb && supabaseClient) {
-            const generationModel = options.model || MODELS.questionGeneration;
-            const { inserted, skipped } = await syncToDatabase(
-              supabaseClient,
-              questionsWithHashes,
-              existingHashes,
-              options.batchId,
-              generationModel,
-              options.sourceFile
-            );
-            totalInserted += inserted;
-            totalSkippedDuplicates += skipped;
+            // Sync to database if enabled
+            if (options.syncDb && supabaseClient) {
+              const { inserted, skipped } = await syncToDatabase(
+                supabaseClient,
+                questionsWithHashes,
+                existingHashes,
+                options.batchId,
+                pass.model,
+                options.sourceFile
+              );
+              totalInserted += inserted;
+              totalSkippedDuplicates += skipped;
 
-            // Add newly inserted hashes to the set to avoid duplicates within the same run
-            for (const q of questionsWithHashes) {
-              if (q.contentHash) existingHashes.add(q.contentHash);
-            }
+              // Add newly inserted hashes to the set to avoid duplicates within the same run
+              for (const q of questionsWithHashes) {
+                if (q.contentHash) existingHashes.add(q.contentHash);
+              }
 
-            if (inserted > 0 || skipped > 0) {
-              console.log(`    ✅ Generated ${questions.length} | Inserted ${inserted} | Skipped ${skipped} duplicates`);
+              if (inserted > 0 || skipped > 0) {
+                console.log(`    ✅ Generated ${questions.length} | Inserted ${inserted} | Skipped ${skipped} duplicates`);
+              } else {
+                console.log(`    ✅ Generated ${questions.length} questions`);
+              }
             } else {
               console.log(`    ✅ Generated ${questions.length} questions`);
             }
-          } else {
-            console.log(`    ✅ Generated ${questions.length} questions`);
           }
-        }
 
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1000));
+          // Small delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
     }
   }
@@ -802,12 +1093,12 @@ async function generateAllQuestions(options: CLIOptions) {
     }
     // Insert batch metadata record
     if (supabaseClient && totalInserted > 0) {
-      const generationModel = options.model || MODELS.questionGeneration;
+      const batchModel = options.model || 'hybrid';
       const { error: batchError } = await supabaseClient
         .from('batches')
         .insert({
           id: options.batchId,
-          model: generationModel,
+          model: batchModel,
           unit_id: options.unitId || 'all',
           difficulty: options.difficulty || 'all',
           type_filter: options.questionType || 'all',
@@ -818,10 +1109,12 @@ async function generateAllQuestions(options: CLIOptions) {
           config: {
             args: process.argv.slice(2),
             count: options.count,
-            model: generationModel,
+            model: batchModel,
+            structuredModel: MODELS.questionGenerationStructured,
+            typedModel: MODELS.questionGenerationTyped,
           },
           prompt_hash: crypto.createHash('sha256')
-            .update(MODELS.questionGeneration) // tracks prompt template changes via model version
+            .update(MODELS.questionGenerationStructured + MODELS.questionGenerationTyped)
             .digest('hex')
             .substring(0, 16),
         });

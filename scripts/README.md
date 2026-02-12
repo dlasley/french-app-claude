@@ -68,6 +68,145 @@ npx tsx scripts/regenerate.ts --all --review-topics --sync-db
 
 ---
 
+## Content Extraction: Topics, Aliases, and Sections
+
+When `generate-questions.ts` generates questions for a topic, it needs to find the
+relevant learning material to feed Claude as context. This is a multi-step process
+that maps **topic names** → **heading aliases** → **markdown sections**.
+
+### Data Sources
+
+```
+src/lib/units.ts                    learnings/French 1 Unit 2.md
+┌──────────────────────────┐        ┌──────────────────────────────────────┐
+│ {                        │        │ # French 1 Unit 2                    │
+│   name: '-ER Verb        │        │                                      │
+│          Conjugation',   │        │ ## Qu'est-ce que tu aimes faire?     │
+│   headings: [            │        │ ...sports content...                 │
+│     'conjugaison',       │        │                                      │
+│     'conjugation',       │        │ ## Present tense of -ER verbs        │
+│     '-er verbs',         │        │ ...conjugation rules...              │
+│     'present tense       │        │ ### Common ER Verbs                  │
+│        of -er',          │        │ ...verb list...                      │
+│     'conjugate the       │        │ ### How to Conjugate -ER Verbs       │
+│        verbs'            │        │ ...conjugation table...              │
+│   ]                      │        │                                      │
+│ }                        │        │ ## Les jours de la semaine           │
+└──────────────────────────┘        │ ...days content...                   │
+                                    └──────────────────────────────────────┘
+```
+
+### Extraction Flow
+
+```
+extractTopicContent(markdown, "-ER Verb Conjugation")
+│
+├─ Phase 1: Direct match
+│  Scan all headings for one containing "-ER Verb Conjugation" literally.
+│  No match found → fall through to Phase 2.
+│
+├─ Phase 2: Alias match
+│  Look up headings array from units.ts:
+│    ['conjugaison', 'conjugation', '-er verbs', 'present tense of -er', ...]
+│
+│  Scan every heading in the markdown file:
+│
+│    "## Present tense of -ER verbs"
+│     └─ matches alias "present tense of -er" ──► extract section 1
+│
+│    "### Common ER Verbs"
+│     └─ matches alias "-er verbs" ──────────────► extract section 2
+│
+│    "### How to Conjugate -ER Verbs"
+│     └─ matches alias "conjugate the verbs" ───► extract section 3
+│
+│  Log: Found topic "-ER Verb Conjugation" via alias match (3 sections)
+│
+└─ Result: 3 sections joined with "---" separators
+   Passed to Claude as learning context for question generation.
+```
+
+### Section Boundaries
+
+Each matched section includes everything from the heading down to the next heading
+at the **same or higher level**. Subsections are included:
+
+```
+## Present tense of -ER verbs    ◄── match starts here (level 2)
+   paragraph content...               │
+### Common ER Verbs              ◄── included (level 3, deeper)
+   verb list...                        │
+### How to Conjugate             ◄── this is a SEPARATE match
+## Les jours de la semaine       ◄── would stop section (level 2, same level)
+```
+
+Sections shorter than 10 lines are discarded (likely just a heading with no content).
+
+### Fallback Chain
+
+| Step | Condition | Result |
+|------|-----------|--------|
+| Direct match | Heading contains topic name literally | Use that section |
+| Alias match | Any `headings[]` alias found in markdown headings | Join all matched sections |
+| No match | Neither works | Warning logged; Claude generates from general knowledge |
+
+### Alias Matching Rules
+
+- **Case-insensitive**: `"conjugation"` matches `"Conjugation"` and `"CONJUGATION"`
+- **Word-boundary aware**: `"present"` won't match `"presentation"`; uses Unicode-aware lookbehind/lookahead
+- **H1 skipped**: Document-level `# Title` headings are never matched (only `##` and deeper)
+- **Deduplication**: Each heading index is matched at most once, even if multiple aliases hit it
+
+---
+
+## Quality Pipeline
+
+After generation, two scripts evaluate and adjust question quality:
+
+```
+generate-questions.ts ──► Supabase
+                              │
+              ┌───────────────┼───────────────┐
+              ▼                               ▼
+    validate-difficulty.ts            audit-quality.ts
+    (reclassify difficulty            (Sonnet evaluates
+     using Haiku rubric)               correctness, grammar,
+              │                        hallucination, coherence)
+              ▼                               │
+    UPDATE questions SET                      ▼
+    difficulty = ...                  Console report with
+                                     pass rates by type/model
+```
+
+### validate-difficulty.ts
+
+Reclassifies every question's difficulty using a rubric-based AI pass.
+
+```bash
+npx tsx scripts/validate-difficulty.ts > /tmp/french-validation.log 2>&1
+```
+
+### audit-quality.ts
+
+Evaluates questions for correctness, grammar, hallucination, and coherence.
+Supports filtering by unit, difficulty, type, model, and random sampling.
+
+```bash
+# Audit all questions
+npx tsx scripts/audit-quality.ts
+
+# Compare Haiku vs Sonnet questions for unit-2
+npx tsx scripts/audit-quality.ts --unit unit-2
+
+# Audit only Sonnet-generated questions
+npx tsx scripts/audit-quality.ts --model claude-sonnet-4-5-20250929
+
+# Random sample of 50
+npx tsx scripts/audit-quality.ts --limit 50
+```
+
+---
+
 ## Script Reference
 
 ### regenerate.ts (Pipeline)
