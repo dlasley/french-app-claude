@@ -15,6 +15,7 @@
  *   npx tsx scripts/audit-quality.ts --limit 50               # Random sample of N questions
  *   npx tsx scripts/audit-quality.ts --batch batch_xyz        # Filter by batch_id
  *   npx tsx scripts/audit-quality.ts --mark-db --unit unit-2  # Write quality_status to DB
+ *   npx tsx scripts/audit-quality.ts --export data/audit-sonnet.json  # Export results to JSON
  */
 
 import { config } from 'dotenv';
@@ -22,6 +23,7 @@ config({ path: '.env.local' });
 
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { writeFileSync } from 'fs';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -50,6 +52,7 @@ interface CLIOptions {
   limit?: number;
   batchId?: string;
   markDb?: boolean;
+  exportPath?: string;
 }
 
 function parseArgs(): CLIOptions {
@@ -64,6 +67,7 @@ function parseArgs(): CLIOptions {
       case '--limit': options.limit = parseInt(args[++i], 10); break;
       case '--batch': options.batchId = args[++i]; break;
       case '--mark-db': options.markDb = true; break;
+      case '--export': options.exportPath = args[++i]; break;
     }
   }
   return options;
@@ -281,6 +285,12 @@ async function main() {
   }
 
   console.log('\n');
+
+  // Export results to JSON if --export specified
+  if (options.exportPath) {
+    writeFileSync(options.exportPath, JSON.stringify(results, null, 2));
+    console.log(`Results exported to ${options.exportPath}\n`);
+  }
 
   // Summary
   const flagged = results.filter(r =>
