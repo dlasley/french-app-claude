@@ -16,6 +16,7 @@
  *   npx tsx scripts/audit-quality.ts --batch batch_xyz        # Filter by batch_id
  *   npx tsx scripts/audit-quality.ts --write-db --unit unit-2 # Write quality_status to DB
  *   npx tsx scripts/audit-quality.ts --write-db --pending-only # Audit only pending questions
+ *   npx tsx scripts/audit-quality.ts --export data/audit-sonnet.json  # Export results to JSON
  */
 
 import { config } from 'dotenv';
@@ -23,6 +24,7 @@ config({ path: '.env.local' });
 
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { writeFileSync } from 'fs';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -52,6 +54,7 @@ interface CLIOptions {
   batchId?: string;
   markDb?: boolean;
   pendingOnly?: boolean;
+  exportPath?: string;
 }
 
 function parseArgs(): CLIOptions {
@@ -71,6 +74,7 @@ function parseArgs(): CLIOptions {
         options.markDb = true;
         break;
       case '--pending-only': options.pendingOnly = true; break;
+      case '--export': options.exportPath = args[++i]; break;
     }
   }
   return options;
@@ -290,6 +294,12 @@ async function main() {
   }
 
   console.log('\n');
+
+  // Export results to JSON if --export specified
+  if (options.exportPath) {
+    writeFileSync(options.exportPath, JSON.stringify(results, null, 2));
+    console.log(`Results exported to ${options.exportPath}\n`);
+  }
 
   // Summary
   const flagged = results.filter(r =>
