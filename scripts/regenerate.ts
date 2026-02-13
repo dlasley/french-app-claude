@@ -17,6 +17,7 @@
  *   --write-db      Sync generated questions to Supabase
  *   --sync-db       (deprecated alias for --write-db)
  *   --audit         Run quality audit after generation (requires --write-db)
+ *   --auditor <m>   Audit model: 'mistral' (default) or 'sonnet'
  *   --dry-run       Show what would be done without executing
  *
  * Examples:
@@ -56,6 +57,7 @@ interface PipelineOptions {
   skipTopics: boolean;
   syncDb: boolean;
   audit: boolean;
+  auditor: 'mistral' | 'sonnet';
   dryRun: boolean;
 }
 
@@ -312,6 +314,14 @@ function parseArgs(): PipelineOptions {
     console.warn('⚠️  --sync-db is deprecated, use --write-db instead');
   }
 
+  // Parse --auditor flag (default: mistral)
+  const auditorIdx = args.indexOf('--auditor');
+  const auditorValue = auditorIdx >= 0 ? args[auditorIdx + 1] : 'mistral';
+  if (!['mistral', 'sonnet'].includes(auditorValue)) {
+    console.error(`❌ Invalid --auditor value: ${auditorValue}. Must be 'mistral' or 'sonnet'.`);
+    process.exit(1);
+  }
+
   const options: PipelineOptions = {
     unitId: args[0],
     reviewTopics: args.includes('--review-topics'),
@@ -320,6 +330,7 @@ function parseArgs(): PipelineOptions {
     skipTopics: args.includes('--skip-topics'),
     syncDb: hasWriteDb || hasSyncDb,
     audit: args.includes('--audit'),
+    auditor: auditorValue as 'mistral' | 'sonnet',
     dryRun: args.includes('--dry-run'),
   };
 
@@ -350,6 +361,7 @@ Options:
   --write-db      Sync generated questions to database
   --sync-db       (deprecated alias for --write-db)
   --audit         Run quality audit after generation (requires --write-db)
+  --auditor <m>   Audit model: 'mistral' (default) or 'sonnet'
   --dry-run       Show what would be done without executing
 
 Examples:
@@ -946,27 +958,31 @@ async function stepGenerateQuestions(
 /**
  * Step 4: Quality audit (optional, --audit flag)
  * Audits pending questions and promotes them to active/flagged.
+ * Default: Mistral (independent cross-provider audit). Override with --auditor sonnet.
  */
 async function stepAuditQuestions(
   unitId: string,
   options: PipelineOptions
 ): Promise<{ success: boolean }> {
+  const auditorLabel = options.auditor === 'mistral' ? 'Mistral Large' : 'Sonnet';
+  const auditScript = options.auditor === 'mistral' ? 'audit-quality-mistral.ts' : 'audit-quality.ts';
+
   console.log('\n┌─────────────────────────────────────────────────────────────┐');
-  console.log('│  STEP 4: Quality Audit (pending → active/flagged)          │');
+  console.log(`│  STEP 4: Quality Audit — ${auditorLabel} (pending → active/flagged)  │`);
   console.log('└─────────────────────────────────────────────────────────────┘\n');
 
   const args = ['--write-db', '--pending-only', '--unit', unitId];
 
-  console.log(`  🔍 Auditing pending questions for ${unitId}`);
-  console.log(`  🚀 Running: npx tsx scripts/audit-quality.ts ${args.join(' ')}\n`);
+  console.log(`  🔍 Auditing pending questions for ${unitId} (${auditorLabel})`);
+  console.log(`  🚀 Running: npx tsx scripts/${auditScript} ${args.join(' ')}\n`);
 
   if (options.dryRun) {
-    console.log('  [DRY RUN] Would audit pending questions and promote to active/flagged');
+    console.log(`  [DRY RUN] Would audit pending questions with ${auditorLabel} and promote to active/flagged`);
     return { success: true };
   }
 
   return new Promise((resolve) => {
-    const proc = spawn('npx', ['tsx', 'scripts/audit-quality.ts', ...args], {
+    const proc = spawn('npx', ['tsx', `scripts/${auditScript}`, ...args], {
       stdio: 'inherit',
       shell: true,
     });
@@ -1060,7 +1076,7 @@ async function main() {
   console.log(`  Force convert: ${options.forceConvert ? 'Yes' : 'No'}`);
   console.log(`  Skip topics:   ${options.skipTopics ? 'Yes' : 'No'}`);
   console.log(`  Write to DB:   ${options.syncDb ? 'Yes' : 'No'}`);
-  console.log(`  Audit:         ${options.audit ? 'Yes (pending → active/flagged)' : 'No'}`);
+  console.log(`  Audit:         ${options.audit ? `Yes — ${options.auditor === 'mistral' ? 'Mistral Large' : 'Sonnet'} (pending → active/flagged)` : 'No'}`);
   console.log(`  Dry run:       ${options.dryRun ? 'Yes' : 'No'}`);
 
   if (options.unitId === '--all') {

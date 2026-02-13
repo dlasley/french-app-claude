@@ -39,10 +39,15 @@ import { units } from '../src/lib/units';
 import { loadUnitMaterials, extractTopicContent } from '../src/lib/learning-materials';
 import { inferWritingType, WritingType } from './lib/writing-type-inference';
 import { MODELS, STRUCTURED_TYPES, TYPED_TYPES, getModelForType, QuestionType } from './lib/config';
+import { Mistral } from '@mistralai/mistralai';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+const mistral = process.env.MISTRAL_API_KEY
+  ? new Mistral({ apiKey: process.env.MISTRAL_API_KEY })
+  : null;
 
 interface Question {
   id: string;
@@ -626,6 +631,27 @@ A: ${q.correctAnswer}`;
   return { valid: allValid, rejected: allRejected, difficultyRelabeled };
 }
 
+/** Route generation to Anthropic or Mistral based on model string */
+async function callGenerationModel(model: string, prompt: string): Promise<string> {
+  if (model.startsWith('mistral-')) {
+    if (!mistral) throw new Error('MISTRAL_API_KEY not set — cannot use Mistral models');
+    const response = await mistral.chat.complete({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+      responseFormat: { type: 'json_object' },
+    });
+    return response.choices?.[0]?.message?.content?.toString() || '';
+  }
+  // Default: Anthropic
+  const message = await anthropic.messages.create({
+    model,
+    max_tokens: 4000,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  return message.content[0].type === 'text' ? message.content[0].text : '';
+}
+
 async function generateQuestionsForTopic(
   unitId: string,
   topic: string,
@@ -645,13 +671,7 @@ async function generateQuestionsForTopic(
     const unitMaterials = loadUnitMaterials(unitId);
     const topicContent = extractTopicContent(unitMaterials, topic);
 
-    const message = await anthropic.messages.create({
-      model: modelOverride || MODELS.questionGenerationStructured,
-      max_tokens: 4000,
-      messages: [
-        {
-          role: 'user',
-          content: `You are a French 1 teacher creating quiz questions about "${topic}".
+    const prompt = `You are a French 1 teacher creating quiz questions about "${topic}".
 
 ## Scope
 - Topic: ${topic}
@@ -816,12 +836,12 @@ Return ONLY valid JSON:
   ]
 }
 
-Return ONLY the JSON, no additional text.`,
-        },
-      ],
-    });
+Return ONLY the JSON, no additional text.`;
 
-    const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
+    const responseText = await callGenerationModel(
+      modelOverride || MODELS.questionGenerationStructured,
+      prompt
+    );
 
     // Try to extract JSON more robustly
     let jsonMatch = responseText.match(/\{[\s\S]*\}/);

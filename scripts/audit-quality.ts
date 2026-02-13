@@ -391,44 +391,72 @@ async function main() {
     }
   }
 
-  // Write quality_status to database if --write-db is set
+  // Write quality_status + audit_metadata to database if --write-db is set
   if (options.markDb) {
     console.log('\n' + '═'.repeat(60));
-    console.log('WRITING QUALITY STATUS TO DATABASE');
+    console.log('WRITING QUALITY STATUS + AUDIT METADATA TO DATABASE');
     console.log('═'.repeat(60));
 
-    const flaggedIds = flagged.map(r => r.id);
-    const passingIds = results.filter(r =>
+    // Build audit_metadata JSONB for each result (Sonnet: 4 criteria only)
+    const buildAuditMetadata = (r: AuditResult) => ({
+      auditor: 'sonnet',
+      model: EVALUATOR_MODEL,
+      audited_at: new Date().toISOString(),
+      gate_criteria: {
+        answer_correct: r.answer_correct,
+        grammar_correct: r.grammar_correct,
+        no_hallucination: r.no_hallucination,
+        question_coherent: r.question_coherent,
+      },
+      notes: r.notes,
+    });
+
+    const validResults = results.filter(r => !r.notes.startsWith('PARSE_ERROR:'));
+    const flaggedResults = validResults.filter(r =>
+      !r.answer_correct || !r.grammar_correct || !r.no_hallucination || !r.question_coherent
+    );
+    const passingResults = validResults.filter(r =>
       r.answer_correct && r.grammar_correct && r.no_hallucination && r.question_coherent
-      && !r.notes.startsWith('PARSE_ERROR:')
-    ).map(r => r.id);
+    );
 
-    // Mark flagged questions
-    if (flaggedIds.length > 0) {
-      const { error: flagError } = await supabase
-        .from('questions')
-        .update({ quality_status: 'flagged' })
-        .in('id', flaggedIds);
-
-      if (flagError) {
-        console.error(`  Error marking flagged questions: ${flagError.message}`);
-      } else {
-        console.log(`  Marked ${flaggedIds.length} questions as 'flagged'`);
+    // Write flagged questions: quality_status + audit_metadata
+    if (flaggedResults.length > 0) {
+      let flaggedCount = 0;
+      for (const r of flaggedResults) {
+        const { error } = await supabase
+          .from('questions')
+          .update({
+            quality_status: 'flagged',
+            audit_metadata: buildAuditMetadata(r),
+          })
+          .eq('id', r.id);
+        if (error) {
+          console.error(`  Error flagging ${r.id}: ${error.message}`);
+        } else {
+          flaggedCount++;
+        }
       }
+      console.log(`  Marked ${flaggedCount} questions as 'flagged' (with audit_metadata)`);
     }
 
-    // Mark passing questions as active (promotes pending → active)
-    if (passingIds.length > 0) {
-      const { error: activeError } = await supabase
-        .from('questions')
-        .update({ quality_status: 'active' })
-        .in('id', passingIds);
-
-      if (activeError) {
-        console.error(`  Error marking active questions: ${activeError.message}`);
-      } else {
-        console.log(`  Marked ${passingIds.length} questions as 'active'`);
+    // Write passing questions: quality_status + audit_metadata (no difficulty relabeling for Sonnet)
+    if (passingResults.length > 0) {
+      let activeCount = 0;
+      for (const r of passingResults) {
+        const { error } = await supabase
+          .from('questions')
+          .update({
+            quality_status: 'active',
+            audit_metadata: buildAuditMetadata(r),
+          })
+          .eq('id', r.id);
+        if (error) {
+          console.error(`  Error activating ${r.id}: ${error.message}`);
+        } else {
+          activeCount++;
+        }
       }
+      console.log(`  Marked ${activeCount} questions as 'active' (with audit_metadata)`);
     }
 
     // Parse errors are left unchanged (not enough info to judge)
@@ -439,8 +467,8 @@ async function main() {
     // Promotion summary when auditing pending questions
     if (options.pendingOnly) {
       console.log('\n  Promotion summary (pending questions):');
-      console.log(`    Promoted to active:  ${passingIds.length}`);
-      console.log(`    Flagged:             ${flaggedIds.length}`);
+      console.log(`    Promoted to active:  ${passingResults.length}`);
+      console.log(`    Flagged:             ${flaggedResults.length}`);
       if (parseErrors.length > 0) {
         console.log(`    Still pending:       ${parseErrors.length} (parse errors)`);
       }

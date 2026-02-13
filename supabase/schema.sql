@@ -96,6 +96,7 @@ CREATE TABLE questions (
   source_file TEXT,                          -- Learning material source
   generated_by TEXT,                         -- Model ID that generated this question (per-question for multi-model support)
   quality_status TEXT DEFAULT 'pending' CHECK (quality_status IN ('active', 'flagged', 'pending')),
+  audit_metadata JSONB,                      -- Stage 3 audit & remediation diagnostic snapshot
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -379,6 +380,7 @@ COMMENT ON COLUMN questions.batch_id IS 'Identifies which generation batch creat
 COMMENT ON COLUMN questions.source_file IS 'Path to the markdown learning file used to generate this question';
 COMMENT ON COLUMN questions.generated_by IS 'Model ID that generated this question (e.g., claude-haiku-4-5-20251001). Per-question for multi-model support.';
 COMMENT ON COLUMN questions.quality_status IS 'Audit status: pending (awaiting audit, not served), active (serves to students), or flagged (excluded from quizzes, protected from deletion)';
+COMMENT ON COLUMN questions.audit_metadata IS 'Stage 3 audit & remediation diagnostic snapshot: criteria results, suggested_difficulty, missing/invalid variations. Written by audit scripts alongside quality_status. Mistral applies difficulty relabeling + invalid variation removal.';
 COMMENT ON TABLE batches IS 'Metadata for each question generation batch run. Tracks pipeline state, model, config, and results.';
 COMMENT ON COLUMN question_results.score IS 'Evaluation score 0-100. NULL for legacy data. MCQ/TF are always 0 or 100. Typed answers use fuzzy/API evaluation score.';
 COMMENT ON TABLE leitner_state IS 'Leitner spaced repetition box assignments per student per question';

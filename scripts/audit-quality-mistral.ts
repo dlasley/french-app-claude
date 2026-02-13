@@ -1,6 +1,7 @@
 /**
- * Cross-validation audit using Mistral Large.
+ * Stage 3: Audit & Remediation using Mistral Large.
  * Independent French-native evaluation to catch errors Anthropic models may miss.
+ * Applies safe remediations: difficulty relabeling + invalid variation removal.
  *
  * Requires: MISTRAL_API_KEY in .env.local
  *   Get API key: https://console.mistral.ai/api-keys
@@ -14,8 +15,9 @@
  *   npx tsx scripts/audit-quality-mistral.ts --type writing         # Filter by question type
  *   npx tsx scripts/audit-quality-mistral.ts --limit 50             # Random sample of N
  *   npx tsx scripts/audit-quality-mistral.ts --batch batch_xyz      # Filter by batch_id
+ *   npx tsx scripts/audit-quality-mistral.ts --pending-only         # Audit only pending questions
  *   npx tsx scripts/audit-quality-mistral.ts --export data/out.json # Export results to JSON
- *   npx tsx scripts/audit-quality-mistral.ts --write-db              # Write quality_status to DB
+ *   npx tsx scripts/audit-quality-mistral.ts --write-db              # Write quality_status + audit_metadata to DB
  */
 
 import { config } from 'dotenv';
@@ -67,6 +69,7 @@ interface CLIOptions {
   limit?: number;
   batchId?: string;
   writeDb?: boolean;
+  pendingOnly?: boolean;
   exportPath?: string;
 }
 
@@ -81,6 +84,7 @@ function parseArgs(): CLIOptions {
       case '--limit': options.limit = parseInt(args[++i], 10); break;
       case '--batch': options.batchId = args[++i]; break;
       case '--write-db': options.writeDb = true; break;
+      case '--pending-only': options.pendingOnly = true; break;
       case '--export': options.exportPath = args[++i]; break;
     }
   }
@@ -139,6 +143,7 @@ async function fetchQuestions(options: CLIOptions): Promise<QuestionRow[]> {
     if (options.difficulty) query = query.eq('difficulty', options.difficulty);
     if (options.type) query = query.eq('type', options.type);
     if (options.batchId) query = query.eq('batch_id', options.batchId);
+    if (options.pendingOnly) query = query.eq('quality_status', 'pending');
     query = query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
     const { data, error } = await query;
@@ -274,6 +279,7 @@ async function main() {
     options.type && `type=${options.type}`,
     options.limit && `limit=${options.limit}`,
     options.batchId && `batch=${options.batchId}`,
+    options.pendingOnly && 'pending-only',
   ].filter(Boolean);
 
   console.log(`Fetching questions${filters.length ? ` (${filters.join(', ')})` : ''}...`);
@@ -340,44 +346,55 @@ async function main() {
   }
 
   // ── Summary ──────────────────────────────────────────────
-  const flagged = results.filter(r =>
+  // 6-gate: the criteria that actually determine flagged vs active
+  const isGatePass = (r: MistralAuditResult) =>
+    r.answer_correct && r.grammar_correct && r.no_hallucination && r.question_coherent &&
+    r.natural_french && r.register_appropriate;
+
+  const gatePass = results.filter(r => isGatePass(r));
+  const gateFlagged = results.filter(r => !isGatePass(r));
+  const all8Flagged = results.filter(r =>
     !r.answer_correct || !r.grammar_correct || !r.no_hallucination || !r.question_coherent ||
     !r.natural_french || !r.register_appropriate || !r.difficulty_appropriate || !r.variations_valid
-  );
-  const core4Flagged = results.filter(r =>
-    !r.answer_correct || !r.grammar_correct || !r.no_hallucination || !r.question_coherent
   );
   const parseErrors = results.filter(r => r.notes.startsWith('PARSE_ERROR:') || r.notes.startsWith('API_ERROR:'));
   const critical = results.filter(r => r.severity === 'critical');
   const minor = results.filter(r => r.severity === 'minor');
 
   console.log('='.repeat(60));
-  console.log('MISTRAL CROSS-VALIDATION AUDIT COMPLETE');
+  console.log('MISTRAL AUDIT & REMEDIATION COMPLETE');
   console.log('='.repeat(60));
   console.log(`  Model:             ${MISTRAL_MODEL}`);
   console.log(`  Total evaluated:   ${results.length}`);
-  console.log(`  All 8 pass:        ${results.length - flagged.length} (${((results.length - flagged.length) / results.length * 100).toFixed(1)}%)`);
-  console.log(`  Core 4 pass:       ${results.length - core4Flagged.length} (${((results.length - core4Flagged.length) / results.length * 100).toFixed(1)}%)`);
-  console.log(`  Total flagged:     ${flagged.length} (${(flagged.length / results.length * 100).toFixed(1)}%)`);
+  console.log(`  6-gate pass:       ${gatePass.length} (${(gatePass.length / results.length * 100).toFixed(1)}%) → would be activated`);
+  console.log(`  6-gate flagged:    ${gateFlagged.length} (${(gateFlagged.length / results.length * 100).toFixed(1)}%) → would be flagged`);
+  console.log(`  All 8 clean:       ${results.length - all8Flagged.length} (${((results.length - all8Flagged.length) / results.length * 100).toFixed(1)}%) (no issues at all)`);
   if (parseErrors.length > 0) {
-    console.log(`  Parse/API errors:  ${parseErrors.length} (not counted as flags)`);
+    console.log(`  Parse/API errors:  ${parseErrors.length} (not counted)`);
   }
   console.log();
 
-  // Breakdown by criterion
-  const criteria = [
+  // Breakdown by criterion — gate vs soft signals
+  const gateCriteria = [
     { key: 'answer_correct', label: 'Answer incorrect' },
     { key: 'grammar_correct', label: 'Grammar incorrect' },
     { key: 'no_hallucination', label: 'Hallucination' },
     { key: 'question_coherent', label: 'Incoherent' },
     { key: 'natural_french', label: 'Unnatural French' },
     { key: 'register_appropriate', label: 'Register mismatch' },
+  ] as const;
+  const softCriteria = [
     { key: 'difficulty_appropriate', label: 'Difficulty mismatch' },
     { key: 'variations_valid', label: 'Invalid variations' },
   ] as const;
 
-  console.log('Failures by criterion:');
-  for (const c of criteria) {
+  console.log('Gate criteria (all must pass for active):');
+  for (const c of gateCriteria) {
+    const count = results.filter(r => !(r[c.key as keyof MistralAuditResult])).length;
+    console.log(`  ${c.label.padEnd(22)} ${count} (${(count / results.length * 100).toFixed(1)}%)`);
+  }
+  console.log('\nSoft signals (remediated, not gated):');
+  for (const c of softCriteria) {
     const count = results.filter(r => !(r[c.key as keyof MistralAuditResult])).length;
     console.log(`  ${c.label.padEnd(22)} ${count} (${(count / results.length * 100).toFixed(1)}%)`);
   }
@@ -420,110 +437,224 @@ async function main() {
     }
   }
 
-  // Show flagged questions (critical first)
-  if (flagged.length > 0) {
-    console.log('\n' + '-'.repeat(60));
-    console.log('FLAGGED QUESTIONS');
-    console.log('-'.repeat(60));
+  // Show flagged questions — gate failures first, then soft-signal-only
+  const printQuestion = (f: MistralAuditResult) => {
+    const flags: string[] = [];
+    if (!f.answer_correct) flags.push('ANSWER');
+    if (!f.grammar_correct) flags.push('GRAMMAR');
+    if (!f.no_hallucination) flags.push('HALLUCINATION');
+    if (!f.question_coherent) flags.push('INCOHERENT');
+    if (!f.natural_french) flags.push('UNNATURAL');
+    if (!f.register_appropriate) flags.push('REGISTER');
+    if (!f.difficulty_appropriate) flags.push(`DIFFICULTY(${f.suggested_difficulty || '?'})`);
+    if (!f.variations_valid) flags.push('VARIATIONS');
 
-    // Sort by severity: critical first, then minor, then suggestion
-    const severityOrder = { critical: 0, minor: 1, suggestion: 2 };
-    const sorted = [...flagged].sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
-
-    for (const f of sorted) {
-      const flags: string[] = [];
-      if (!f.answer_correct) flags.push('ANSWER');
-      if (!f.grammar_correct) flags.push('GRAMMAR');
-      if (!f.no_hallucination) flags.push('HALLUCINATION');
-      if (!f.question_coherent) flags.push('INCOHERENT');
-      if (!f.natural_french) flags.push('UNNATURAL');
-      if (!f.register_appropriate) flags.push('REGISTER');
-      if (!f.difficulty_appropriate) flags.push(`DIFFICULTY(${f.suggested_difficulty || '?'})`);
-      if (!f.variations_valid) flags.push('VARIATIONS');
-
-      console.log(`\n  [${f.severity.toUpperCase()}] [${flags.join(', ')}] ${f.id}`);
-      console.log(`  ${f.type}${f.writing_type ? '/' + f.writing_type : ''} | ${f.topic} | ${f.generated_by || 'unknown'}`);
-      console.log(`  Q: ${f.question}`);
-      console.log(`  A: ${f.answer}`);
-      if (f.missing_variations.length > 0) {
-        console.log(`  Missing: ${f.missing_variations.join(', ')}`);
-      }
-      if (f.invalid_variations.length > 0) {
-        console.log(`  Invalid: ${f.invalid_variations.join(', ')}`);
-      }
-      console.log(`  Notes: ${f.notes}`);
+    console.log(`\n  [${f.severity.toUpperCase()}] [${flags.join(', ')}] ${f.id}`);
+    console.log(`  ${f.type}${f.writing_type ? '/' + f.writing_type : ''} | ${f.topic} | ${f.generated_by || 'unknown'}`);
+    console.log(`  Q: ${f.question}`);
+    console.log(`  A: ${f.answer}`);
+    if (f.missing_variations.length > 0) {
+      console.log(`  Missing: ${f.missing_variations.join(', ')}`);
     }
+    if (f.invalid_variations.length > 0) {
+      console.log(`  Invalid: ${f.invalid_variations.join(', ')}`);
+    }
+    console.log(`  Notes: ${f.notes}`);
+  };
+
+  const severityOrder = { critical: 0, minor: 1, suggestion: 2 };
+  const gateFailures = gateFlagged.filter(r => !r.notes.startsWith('PARSE_ERROR:') && !r.notes.startsWith('API_ERROR:'));
+  const softOnly = all8Flagged.filter(r => isGatePass(r));
+
+  if (gateFailures.length > 0) {
+    console.log('\n' + '-'.repeat(60));
+    console.log(`GATE FAILURES (${gateFailures.length} — would be flagged)`);
+    console.log('-'.repeat(60));
+    const sorted = [...gateFailures].sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+    for (const f of sorted) printQuestion(f);
   }
 
-  // Pass rate by type
+  if (softOnly.length > 0) {
+    console.log('\n' + '-'.repeat(60));
+    console.log(`SOFT-SIGNAL ISSUES (${softOnly.length} — pass gate, remediated)`);
+    console.log('-'.repeat(60));
+    const sorted = [...softOnly].sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+    for (const f of sorted) printQuestion(f);
+  }
+
+  // Pass rate by type (6-gate)
   console.log('\n' + '-'.repeat(60));
-  console.log('PASS RATE BY TYPE (all 8 criteria)');
+  console.log('6-GATE PASS RATE BY TYPE');
   console.log('-'.repeat(60));
   const types = [...new Set(results.map(r => r.type))];
   for (const t of types) {
     const typeResults = results.filter(r => r.type === t);
-    const typePass = typeResults.filter(r =>
-      r.answer_correct && r.grammar_correct && r.no_hallucination && r.question_coherent &&
-      r.natural_french && r.register_appropriate && r.difficulty_appropriate && r.variations_valid
-    ).length;
+    const typePass = typeResults.filter(r => isGatePass(r)).length;
     console.log(`  ${t}: ${typePass}/${typeResults.length} pass (${(typePass / typeResults.length * 100).toFixed(1)}%)`);
   }
 
-  // Pass rate by difficulty
+  // Pass rate by difficulty (6-gate)
   console.log('\n' + '-'.repeat(60));
-  console.log('PASS RATE BY DIFFICULTY');
+  console.log('6-GATE PASS RATE BY DIFFICULTY');
   console.log('-'.repeat(60));
   for (const d of ['beginner', 'intermediate', 'advanced']) {
     const dResults = results.filter(r => questionMap.get(r.id)?.difficulty === d);
     if (dResults.length === 0) continue;
-    const dPass = dResults.filter(r =>
-      r.answer_correct && r.grammar_correct && r.no_hallucination && r.question_coherent &&
-      r.natural_french && r.register_appropriate && r.difficulty_appropriate && r.variations_valid
-    ).length;
+    const dPass = dResults.filter(r => isGatePass(r)).length;
     console.log(`  ${d}: ${dPass}/${dResults.length} pass (${(dPass / dResults.length * 100).toFixed(1)}%)`);
   }
 
-  // Write quality_status to database if --write-db is set
+  // Post-relabeling difficulty distribution (6-gate passing only)
+  const passingWithDiff = gatePass.map(r => {
+    const current = questionMap.get(r.id)?.difficulty || 'unknown';
+    const suggested = r.suggested_difficulty;
+    const final = (suggested && ['beginner', 'intermediate', 'advanced'].includes(suggested) && suggested !== current)
+      ? suggested : current;
+    return final;
+  });
+  const diffDist: Record<string, number> = {};
+  for (const d of passingWithDiff) diffDist[d] = (diffDist[d] || 0) + 1;
+  console.log('\n' + '-'.repeat(60));
+  console.log(`SERVED DIFFICULTY DISTRIBUTION (${gatePass.length} active, post-relabeling)`);
+  console.log('-'.repeat(60));
+  for (const d of ['beginner', 'intermediate', 'advanced']) {
+    const count = diffDist[d] || 0;
+    console.log(`  ${d}: ${count} (${(count / gatePass.length * 100).toFixed(1)}%)`);
+  }
+
+  // Write quality_status + audit_metadata to database if --write-db is set
   if (options.writeDb) {
     console.log('\n' + '='.repeat(60));
-    console.log('WRITING QUALITY STATUS TO DATABASE');
+    console.log('WRITING QUALITY STATUS + AUDIT METADATA TO DATABASE');
     console.log('='.repeat(60));
 
-    // Only mark based on core 4 criteria (same as Sonnet audit)
-    const flaggedIds = core4Flagged.map(r => r.id);
-    const passingIds = results.filter(r =>
-      r.answer_correct && r.grammar_correct && r.no_hallucination && r.question_coherent &&
-      !r.notes.startsWith('PARSE_ERROR:') && !r.notes.startsWith('API_ERROR:')
-    ).map(r => r.id);
+    const isError = (r: MistralAuditResult) =>
+      r.notes.startsWith('PARSE_ERROR:') || r.notes.startsWith('API_ERROR:');
 
-    if (flaggedIds.length > 0) {
-      const { error: flagError } = await supabase
-        .from('questions')
-        .update({ quality_status: 'flagged' })
-        .in('id', flaggedIds);
+    // Build audit_metadata JSONB for each result
+    const buildAuditMetadata = (r: MistralAuditResult) => ({
+      auditor: 'mistral',
+      model: MISTRAL_MODEL,
+      audited_at: new Date().toISOString(),
+      gate_criteria: {
+        answer_correct: r.answer_correct,
+        grammar_correct: r.grammar_correct,
+        no_hallucination: r.no_hallucination,
+        question_coherent: r.question_coherent,
+        natural_french: r.natural_french,
+        register_appropriate: r.register_appropriate,
+      },
+      soft_signals: {
+        difficulty_appropriate: r.difficulty_appropriate,
+        suggested_difficulty: r.suggested_difficulty,
+        variations_valid: r.variations_valid,
+        missing_variations: r.missing_variations,
+        invalid_variations: r.invalid_variations,
+      },
+      severity: r.severity,
+      notes: r.notes,
+    });
 
-      if (flagError) {
-        console.error(`  Error marking flagged questions: ${flagError.message}`);
-      } else {
-        console.log(`  Marked ${flaggedIds.length} questions as 'flagged'`);
+    const validResults = results.filter(r => !isError(r));
+    const flaggedResults = validResults.filter(r => !isGatePass(r));
+    const passingResults = validResults.filter(r => isGatePass(r));
+
+    // Write flagged questions: quality_status + audit_metadata
+    if (flaggedResults.length > 0) {
+      // Supabase .in() doesn't support per-row data, so batch update individually
+      let flaggedCount = 0;
+      for (const r of flaggedResults) {
+        const { error } = await supabase
+          .from('questions')
+          .update({
+            quality_status: 'flagged',
+            audit_metadata: buildAuditMetadata(r),
+          })
+          .eq('id', r.id);
+        if (error) {
+          console.error(`  Error flagging ${r.id}: ${error.message}`);
+        } else {
+          flaggedCount++;
+        }
       }
+      console.log(`  Marked ${flaggedCount} questions as 'flagged' (with audit_metadata)`);
     }
 
-    if (passingIds.length > 0) {
-      const { error: activeError } = await supabase
-        .from('questions')
-        .update({ quality_status: 'active' })
-        .in('id', passingIds);
+    // Write passing questions: quality_status + audit_metadata + remediation
+    if (passingResults.length > 0) {
+      let activeCount = 0;
+      let difficultyRelabeled = 0;
+      let variationsRemoved = 0;
+      for (const r of passingResults) {
+        const question = questionMap.get(r.id);
+        const currentDifficulty = question?.difficulty;
+        const suggestedDifficulty = r.suggested_difficulty;
+        const shouldRelabel = suggestedDifficulty &&
+          ['beginner', 'intermediate', 'advanced'].includes(suggestedDifficulty) &&
+          suggestedDifficulty !== currentDifficulty;
 
-      if (activeError) {
-        console.error(`  Error marking active questions: ${activeError.message}`);
-      } else {
-        console.log(`  Marked ${passingIds.length} questions as 'active'`);
+        // Remediation: remove invalid variations (subtractive only, safe)
+        const currentVariations = question?.acceptable_variations || [];
+        const invalidVariations = r.invalid_variations || [];
+        const shouldRemoveVariations = invalidVariations.length > 0 && currentVariations.length > 0;
+        const cleanedVariations = shouldRemoveVariations
+          ? currentVariations.filter(v => !invalidVariations.includes(v))
+          : null; // null = no change needed
+
+        const updateData: Record<string, unknown> = {
+          quality_status: 'active',
+          audit_metadata: buildAuditMetadata(r),
+        };
+
+        if (shouldRelabel) {
+          updateData.difficulty = suggestedDifficulty;
+        }
+
+        if (cleanedVariations && cleanedVariations.length !== currentVariations.length) {
+          updateData.acceptable_variations = cleanedVariations;
+        }
+
+        const { error } = await supabase
+          .from('questions')
+          .update(updateData)
+          .eq('id', r.id);
+
+        if (error) {
+          console.error(`  Error activating ${r.id}: ${error.message}`);
+        } else {
+          activeCount++;
+          if (shouldRelabel) {
+            difficultyRelabeled++;
+            console.log(`    Difficulty re-label: ${r.id} ${currentDifficulty} -> ${suggestedDifficulty}`);
+          }
+          if (cleanedVariations && cleanedVariations.length !== currentVariations.length) {
+            const removed = currentVariations.length - cleanedVariations.length;
+            variationsRemoved += removed;
+            console.log(`    Variations removed:  ${r.id} removed ${removed} invalid (${currentVariations.length} -> ${cleanedVariations.length})`);
+          }
+        }
+      }
+      console.log(`  Marked ${activeCount} questions as 'active' (with audit_metadata)`);
+      if (difficultyRelabeled > 0) {
+        console.log(`  Re-labeled difficulty on ${difficultyRelabeled} questions (Mistral suggested_difficulty)`);
+      }
+      if (variationsRemoved > 0) {
+        console.log(`  Removed ${variationsRemoved} invalid variations across passing questions`);
       }
     }
 
     if (parseErrors.length > 0) {
       console.log(`  Skipped ${parseErrors.length} questions with errors (status unchanged)`);
+    }
+
+    // Promotion summary when auditing pending questions
+    if (options.pendingOnly) {
+      console.log('\n  Promotion summary (pending questions):');
+      console.log(`    Promoted to active:  ${passingResults.length}`);
+      console.log(`    Flagged:             ${flaggedResults.length}`);
+      if (parseErrors.length > 0) {
+        console.log(`    Still pending:       ${parseErrors.length} (parse/API errors)`);
+      }
     }
   }
 }
