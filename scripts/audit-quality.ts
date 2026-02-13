@@ -28,8 +28,8 @@ import { writeFileSync } from 'fs';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Use secret key when --write-db/--mark-db is set (needs write access); anon key for read-only audits
-const useSecretKey = process.argv.includes('--write-db') || process.argv.includes('--mark-db');
+// Use secret key when --write-db is set (needs write access); anon key for read-only audits
+const useSecretKey = process.argv.includes('--write-db');
 const supabaseKey = useSecretKey
   ? (process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
   : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -69,10 +69,6 @@ function parseArgs(): CLIOptions {
       case '--limit': options.limit = parseInt(args[++i], 10); break;
       case '--batch': options.batchId = args[++i]; break;
       case '--write-db': options.markDb = true; break;
-      case '--mark-db':
-        console.warn('⚠️  --mark-db is deprecated, use --write-db instead');
-        options.markDb = true;
-        break;
       case '--pending-only': options.pendingOnly = true; break;
       case '--export': options.exportPath = args[++i]; break;
     }

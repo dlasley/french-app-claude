@@ -15,7 +15,7 @@
  *   npx tsx scripts/audit-quality-mistral.ts --limit 50             # Random sample of N
  *   npx tsx scripts/audit-quality-mistral.ts --batch batch_xyz      # Filter by batch_id
  *   npx tsx scripts/audit-quality-mistral.ts --export data/out.json # Export results to JSON
- *   npx tsx scripts/audit-quality-mistral.ts --mark-db              # Write quality_status to DB
+ *   npx tsx scripts/audit-quality-mistral.ts --write-db              # Write quality_status to DB
  */
 
 import { config } from 'dotenv';
@@ -35,14 +35,14 @@ if (!process.env.MISTRAL_API_KEY) {
 
 const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
 
-// Use secret key when --mark-db is set (needs write access)
-const useSecretKey = process.argv.includes('--mark-db');
+// Use secret key when --write-db is set (needs write access)
+const useSecretKey = process.argv.includes('--write-db');
 const supabaseKey = useSecretKey
   ? (process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
   : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 if (useSecretKey && !process.env.SUPABASE_SECRET_KEY) {
-  console.warn('Warning: --mark-db requires SUPABASE_SECRET_KEY for write access. Falling back to anon key.');
+  console.warn('Warning: --write-db requires SUPABASE_SECRET_KEY for write access. Falling back to anon key.');
 }
 
 const supabase = createClient(
@@ -66,7 +66,7 @@ interface CLIOptions {
   type?: string;
   limit?: number;
   batchId?: string;
-  markDb?: boolean;
+  writeDb?: boolean;
   exportPath?: string;
 }
 
@@ -80,7 +80,7 @@ function parseArgs(): CLIOptions {
       case '--type': options.type = args[++i]; break;
       case '--limit': options.limit = parseInt(args[++i], 10); break;
       case '--batch': options.batchId = args[++i]; break;
-      case '--mark-db': options.markDb = true; break;
+      case '--write-db': options.writeDb = true; break;
       case '--export': options.exportPath = args[++i]; break;
     }
   }
@@ -483,8 +483,8 @@ async function main() {
     console.log(`  ${d}: ${dPass}/${dResults.length} pass (${(dPass / dResults.length * 100).toFixed(1)}%)`);
   }
 
-  // Write quality_status to database if --mark-db is set
-  if (options.markDb) {
+  // Write quality_status to database if --write-db is set
+  if (options.writeDb) {
     console.log('\n' + '='.repeat(60));
     console.log('WRITING QUALITY STATUS TO DATABASE');
     console.log('='.repeat(60));
