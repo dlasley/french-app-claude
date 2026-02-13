@@ -8,7 +8,8 @@
  *   --topic <topic-name>    Generate for specific topic only
  *   --difficulty <level>    Generate for specific difficulty (beginner|intermediate|advanced)
  *   --count <n>             Questions per topic/difficulty (default: 10)
- *   --sync-db               Sync to database (with deduplication)
+ *   --write-db              Sync to database (with deduplication)
+ *   --sync-db               (deprecated alias for --write-db)
  *   --dry-run               Show what would be generated without actually generating
  *   --batch-id <id>         Custom batch ID (default: auto-generated from date)
  *   --source-file <path>    Source learning material file path for tracking
@@ -21,10 +22,10 @@
  *   --type auto-selects the appropriate model for that type.
  *
  * Examples:
- *   npx tsx scripts/generate-questions.ts --unit unit-3 --sync-db           # Hybrid mode
+ *   npx tsx scripts/generate-questions.ts --unit unit-3 --write-db          # Hybrid mode
  *   npx tsx scripts/generate-questions.ts --unit unit-3 --type writing      # Sonnet only
  *   npx tsx scripts/generate-questions.ts --unit unit-3 --model claude-haiku-4-5-20251001  # Force Haiku
- *   npx tsx scripts/generate-questions.ts --sync-db --dry-run
+ *   npx tsx scripts/generate-questions.ts --write-db --dry-run
  */
 
 import { config } from 'dotenv';
@@ -191,7 +192,11 @@ function parseArgs(): CLIOptions {
         }
         options.count = countVal;
         break;
+      case '--write-db':
+        options.syncDb = true;
+        break;
       case '--sync-db':
+        console.warn('⚠️  --sync-db is deprecated, use --write-db instead');
         options.syncDb = true;
         break;
       case '--dry-run':
@@ -238,7 +243,8 @@ Options:
   --type <question-type>  Generate only this type (multiple-choice|fill-in-blank|true-false|writing)
   --writing-type <wtype>  Writing subtype (translation|conjugation|question_formation|sentence_building|open_ended)
   --count <n>             Questions per topic/difficulty (default: ${QUESTIONS_PER_TOPIC_PER_DIFFICULTY})
-  --sync-db               Sync to database (with deduplication)
+  --write-db              Sync to database (with deduplication)
+  --sync-db               (deprecated alias for --write-db)
   --dry-run               Show what would be generated without actually generating
   --batch-id <id>         Custom batch ID (default: auto-generated)
   --source-file <path>    Source learning material file path for tracking
@@ -252,11 +258,11 @@ Hybrid Model Generation:
   --type auto-selects the appropriate model for that type.
 
 Examples:
-  npx tsx scripts/generate-questions.ts --unit unit-3 --sync-db           # Hybrid mode
+  npx tsx scripts/generate-questions.ts --unit unit-3 --write-db          # Hybrid mode
   npx tsx scripts/generate-questions.ts --unit unit-3 --type writing      # Sonnet auto-selected
   npx tsx scripts/generate-questions.ts --model claude-haiku-4-5-20251001 # Force single model
-  npx tsx scripts/generate-questions.ts --type writing --writing-type conjugation --sync-db
-  npx tsx scripts/generate-questions.ts --sync-db --dry-run
+  npx tsx scripts/generate-questions.ts --type writing --writing-type conjugation --write-db
+  npx tsx scripts/generate-questions.ts --write-db --dry-run
   `);
 }
 
@@ -360,6 +366,7 @@ async function syncToDatabase(
       batch_id: batchId,
       source_file: sourceFile,
       generated_by: generatedBy,
+      quality_status: 'pending',
     };
   });
 
@@ -449,13 +456,16 @@ function structuralValidation(questions: Question[]): { valid: Question[]; rejec
         break;
       case 'fill-in-blank': {
         const blankCount = (q.question.match(/_{3,}/g) || []).length;
-        const answerTokens = q.correctAnswer.trim().split(/\s+/).length;
+        // For multi-blank: count comma-separated groups instead of space-separated words
+        const answerGroups = blankCount > 1
+          ? q.correctAnswer.split(',').map(g => g.trim()).filter(Boolean)
+          : [q.correctAnswer.trim()];
         if (!q.question.includes('_____')) {
           rejected.push({ question: q, reason: 'Fill-in-blank must contain _____' });
         } else if (q.correctAnswer.length < 1) {
           rejected.push({ question: q, reason: 'Fill-in-blank answer is empty' });
-        } else if (blankCount > 1 && answerTokens !== blankCount) {
-          rejected.push({ question: q, reason: `Fill-in-blank has ${blankCount} blanks but ${answerTokens} answer tokens` });
+        } else if (blankCount > 1 && answerGroups.length !== blankCount) {
+          rejected.push({ question: q, reason: `Fill-in-blank has ${blankCount} blanks but ${answerGroups.length} comma-separated answer groups` });
         } else {
           valid.push(q);
         }
@@ -504,18 +514,19 @@ For each question below, evaluate whether the provided correct answer is actuall
 - Days of the week NOT capitalized: "lundi", "mardi"
 
 ## Fill-in-blank Format
-- Each "_____" in the question represents exactly ONE word
-- correctAnswer is space-separated: one word per blank, in order of appearance
-- Example: "Tu _____ le foot et il _____ le tennis." → correctAnswer: "aimes préfère"
-- If blank count does not match answer word count, mark answer_valid: false
-- When generating acceptable_variations for fill-in-blank, maintain the same space-separated format (one word per blank, same order)
+- Single blank: correctAnswer is the word(s) that fill the blank (can be multi-word, e.g., "n'aime pas")
+- Multiple blanks: correctAnswer is comma-separated groups, one per blank, in order of appearance
+- Example: "Tu _____ le foot et il _____ le tennis." → correctAnswer: "aimes, préfère"
+- Example (negation): "Je _____ le foot et tu _____ le tennis." → correctAnswer: "n'aime pas, ne préfères pas"
+- If blank count does not match comma-separated group count (for multi-blank), mark answer_valid: false
+- When generating acceptable_variations for multi-blank fill-in-blank, maintain the same comma-separated format (one group per blank, same order)
 
 ## Instructions
 
 For each question:
 1. Check if the correct answer is genuinely correct for the question asked
 2. Check if the French grammar is correct in both question and answer
-3. For fill-in-blank: also verify the number of space-separated answer words matches the number of "_____" blanks
+3. For fill-in-blank with multiple blanks: verify the number of comma-separated answer groups matches the number of "_____" blanks
 4. For fill-in-blank and writing questions that PASS: generate 2-3 acceptable alternative answers that a French teacher would also accept (different valid phrasings, word order variations, accent variants)
 5. For multiple-choice and true-false questions: no variations needed
 
@@ -695,12 +706,17 @@ IMPORTANT: "Advanced" means advanced FOR FRENCH 1. All vocabulary and grammar mu
 **true-false**: Clearly, unambiguously true or false statements. options: ["Vrai", "Faux"]. No trick statements based on technicalities.
 
 **fill-in-blank**: Question MUST contain a sentence with "_____" replacing one or more words. Do NOT include options — the student types their answer.
-IMPORTANT: Each "_____" represents EXACTLY ONE word. Do not create blanks that require multi-word answers. For negation (ne...pas), use two blanks: "Je _____ aime _____ le sport" → correctAnswer: "n' pas"
+Each "_____" can represent one or more words (e.g., a negation like "n'aime pas" fills ONE blank).
 Number of blanks by difficulty: beginner=1 blank, intermediate=1-2 blanks, advanced=2-3 blanks.
-correctAnswer: space-separated words, one per blank, in order of appearance. Examples:
+correctAnswer format:
+  - Single blank: just the answer word(s). Example: "parle" or "n'aime pas"
+  - Multiple blanks: comma-separated groups, one group per blank, in order of appearance.
+Examples:
   - 1 blank: "Je _____ français." → correctAnswer: "parle"
-  - 2 blanks: "Tu _____ le foot et il _____ le tennis." → correctAnswer: "aimes préfère"
-  - 3 blanks: "Je _____ _____ _____ le roller." → correctAnswer: "ne fais pas"
+  - 1 blank (negation): "Elle _____ le sport." → correctAnswer: "n'aime pas"
+  - 2 blanks: "Tu _____ le foot et il _____ le tennis." → correctAnswer: "aimes, préfère"
+  - 3 blanks: "Le français est officiel au _____, au _____ et au _____." → correctAnswer: "Cameroun, Congo, Gabon"
+  - 2 blanks (negation): "Je _____ le foot et tu _____ le tennis." → correctAnswer: "n'aime pas, ne préfères pas"
 
 **writing**: Translations, sentence construction, or short responses. Sentence limits by difficulty: beginner=1 sentence, intermediate=1-2 sentences, advanced=2-3 sentences. correctAnswer is the expected response.
 ${writingType ? `
@@ -1127,7 +1143,7 @@ async function generateAllQuestions(options: CLIOptions) {
     }
   } else {
     console.log('\n⚠️  Questions were generated but NOT saved to database.');
-    console.log('   Use --sync-db flag to persist questions to Supabase.');
+    console.log('   Use --write-db flag to persist questions to Supabase.');
   }
 }
 
