@@ -529,9 +529,15 @@ For each question:
 3. For fill-in-blank with multiple blanks: verify the number of comma-separated answer groups matches the number of "_____" blanks
 4. For fill-in-blank and writing questions that PASS: generate 2-3 acceptable alternative answers that a French teacher would also accept (different valid phrasings, word order variations, accent variants)
 5. For multiple-choice and true-false questions: no variations needed
+6. Verify the difficulty label matches cognitive demand:
+   - BEGINNER: Tests recall/recognition of ONE concept with a short answer (single word, single fact T/F, vocabulary identification)
+   - INTERMEDIATE: Applies exactly ONE grammar rule in a sentence (conjugation, article choice, register selection, agreement)
+   - ADVANCED: Combines TWO+ distinct grammar concepts simultaneously (e.g., negation + partitive, conjugation + agreement)
+   A true/false about one fact = beginner. A single fill-in-blank with one verb form = beginner. Choosing tu vs. vous = intermediate. One short sentence with one grammar rule = intermediate.
+   Set suggested_difficulty to the correct level. If the label is already correct, repeat the labeled difficulty.
 
 Respond with ONLY valid JSON (no markdown, no code fences):
-{"results": [{"id": "q1", "answer_valid": true, "acceptable_variations": ["var1", "var2"], "notes": "OK"}, ...]}
+{"results": [{"id": "q1", "answer_valid": true, "acceptable_variations": ["var1", "var2"], "suggested_difficulty": "beginner", "notes": "OK"}, ...]}
 
 Set answer_valid to false ONLY if the answer is factually wrong or has a grammar error. Do NOT reject questions just because multiple answers could work — that's expected for typed-answer questions.`;
 
@@ -539,6 +545,7 @@ interface ValidationResult {
   id: string;
   answer_valid: boolean;
   acceptable_variations: string[];
+  suggested_difficulty?: 'beginner' | 'intermediate' | 'advanced';
   notes: string;
 }
 
@@ -547,12 +554,13 @@ interface ValidationResult {
  * Batches questions in groups of ~5 for efficiency.
  * Returns only questions that pass validation, with acceptableVariations populated.
  */
-async function validateAnswers(questions: Question[]): Promise<{ valid: Question[]; rejected: { question: Question; reason: string }[] }> {
-  if (questions.length === 0) return { valid: [], rejected: [] };
+async function validateAnswers(questions: Question[]): Promise<{ valid: Question[]; rejected: { question: Question; reason: string }[]; difficultyRelabeled: number }> {
+  if (questions.length === 0) return { valid: [], rejected: [], difficultyRelabeled: 0 };
 
   const BATCH_SIZE = 5;
   const allValid: Question[] = [];
   const allRejected: { question: Question; reason: string }[] = [];
+  let difficultyRelabeled = 0;
 
   for (let i = 0; i < questions.length; i += BATCH_SIZE) {
     const batch = questions.slice(i, i + BATCH_SIZE);
@@ -597,6 +605,13 @@ A: ${q.correctAnswer}`;
           if ((q.type === 'fill-in-blank' || q.type === 'writing') && result.acceptable_variations?.length > 0) {
             q.acceptableVariations = result.acceptable_variations;
           }
+          // Re-label difficulty if validator disagrees
+          const suggested = result.suggested_difficulty;
+          if (suggested && ['beginner', 'intermediate', 'advanced'].includes(suggested) && suggested !== q.difficulty) {
+            console.log(`    ⚠️  Difficulty re-label: "${q.question.substring(0, 50)}..." ${q.difficulty} → ${suggested}`);
+            q.difficulty = suggested;
+            difficultyRelabeled++;
+          }
           allValid.push(q);
         } else {
           allRejected.push({ question: q, reason: result.notes || 'Answer incorrect' });
@@ -608,7 +623,7 @@ A: ${q.correctAnswer}`;
     }
   }
 
-  return { valid: allValid, rejected: allRejected };
+  return { valid: allValid, rejected: allRejected, difficultyRelabeled };
 }
 
 async function generateQuestionsForTopic(
@@ -648,37 +663,48 @@ These materials show what has been taught for this topic. Use them to understand
 
 ${topicContent}
 
-## Difficulty Levels
+## Difficulty Levels — Strict Calibration Rules
 
-**Beginner**: Recognition and recall
-- Translate single words or very short phrases
-- Identify correct translations from options
-- Recall basic vocabulary (e.g., "What is 'cat' in French?")
-- Simple true/false about word meanings
-- Fill-in-blank with a single common word
-- Writing: single sentence (translation or simple response)
+Difficulty is determined by COGNITIVE DEMAND (what the student must do), not by topic complexity. A question about an irregular verb can be beginner if it only asks for recall.
 
-**Intermediate**: Application in simple contexts
-- Complete sentences requiring correct conjugation or article choice
-- Translate short sentences (5-8 words)
-- Choose the grammatically correct option from choices
-- Apply rules in context (e.g., choose tu vs. vous for a scenario)
-- Fill-in-blank requiring grammar knowledge (agreement, conjugation)
-- Writing: 1-2 sentences (translation with grammar, short response)
+**Beginner** — Recognition & Recall (ONE concept, ONE short answer)
+- Translate a single word or fixed phrase (≤3 words)
+- Identify the correct translation from options
+- Recall vocabulary: "What is 'chat' in French?"
+- True/false about a single word meaning or basic fact
+- Fill-in-blank: 1 blank, answer is a single word or fixed form
+- Writing: 1 sentence, direct translation or single-form response
+- MCQ: distractors test vocabulary confusion, not grammar rules
 
-**Advanced**: Synthesis and production
-- Translate longer sentences combining multiple grammar concepts
-- Construct original sentences using specified vocabulary/grammar
-- Short dialogues (2-3 exchanges) demonstrating a concept
-- Questions combining two concepts (e.g., negation + conjugation)
-- Identify and explain errors in French sentences
-- Writing: 2-3 sentences (dialogue exchanges, compound responses)
+**Intermediate** — Application (ONE grammar rule applied in a sentence)
+- Complete a sentence requiring correct conjugation, article, or agreement
+- Translate a short sentence (5-8 words) applying one grammar rule
+- Choose the grammatically correct option (e.g., correct conjugation, tu vs. vous)
+- Apply one rule in context (agreement, negation, partitive, elision)
+- Fill-in-blank: 1-2 blanks, answer requires knowing a grammar rule
+- Writing: 1-2 sentences, translation with one grammar concept
+- MCQ: distractors test common grammar mistakes for one rule
+
+**Advanced** — Synthesis (TWO+ grammar concepts combined)
+- The question MUST require applying two or more distinct grammar rules simultaneously
+- Translate sentences combining concepts (e.g., negation + partitive article: "Je ne mange pas de pain")
+- Construct original sentences using specified vocabulary AND grammar
+- Fill-in-blank: 2-3 blanks, each testing a different concept or the blanks interact
+- Writing: 2-3 sentences, each demonstrating a different grammar point
+- Identify errors that involve interaction between two rules
+- MCQ: correct answer requires understanding two rules to eliminate distractors
+- Examples of valid concept combinations: conjugation + negation, partitive + negation, agreement + plural, avoir/être expressions + sentence building
 
 ## Calibration Exemplars
 These are real questions at each difficulty level. Match this calibration exactly.
 
 ${formatExemplars(selectExemplars(topic))}
-Notice: Beginner = one word or one form. Intermediate = one sentence with one grammar rule applied. Advanced = multiple blanks, multiple sentences, or two concepts combined. If a question tests only one concept with a single short answer, it is NOT advanced.
+DIFFICULTY SELF-CHECK — verify before assigning each question:
+- Beginner: Does this test only recall/recognition of ONE concept with a short answer? → Beginner.
+- Intermediate: Does this apply exactly ONE grammar rule in a sentence? → Intermediate.
+- Advanced: Does this REQUIRE the student to combine TWO+ distinct grammar concepts? → Advanced.
+If a question tests only one concept, it CANNOT be advanced — even if the topic seems complex.
+Common mistakes to avoid: a true/false about one fact is BEGINNER. A single fill-in-blank with one verb form is BEGINNER. Choosing tu vs. vous in one scenario is INTERMEDIATE. Translating one short sentence with one grammar rule is INTERMEDIATE.
 
 IMPORTANT: "Advanced" means advanced FOR FRENCH 1. All vocabulary and grammar must stay within first-year French. Never require:
 - Subjunctive, conditional, passé composé, imparfait
@@ -886,7 +912,8 @@ Return ONLY the JSON, no additional text.`,
 
       const withVariations = aiValidation.valid.filter(q => q.acceptableVariations && q.acceptableVariations.length > 0).length;
       if (aiValidation.valid.length > 0) {
-        console.log(`    ✓  Validated ${aiValidation.valid.length} questions${withVariations > 0 ? ` (${withVariations} with variations)` : ''}`);
+        const relabelNote = aiValidation.difficultyRelabeled > 0 ? `, ${aiValidation.difficultyRelabeled} re-labeled` : '';
+        console.log(`    ✓  Validated ${aiValidation.valid.length} questions${withVariations > 0 ? ` (${withVariations} with variations${relabelNote})` : relabelNote ? ` (${relabelNote.substring(2)})` : ''}`);
       }
 
       validQuestions = aiValidation.valid;
@@ -985,14 +1012,15 @@ async function generateAllQuestions(options: CLIOptions) {
         totalAttempted++;
 
         // Determine generation passes: hybrid mode splits into structured + typed
-        const useHybridMode = !options.model && !options.questionType;
+        // For advanced difficulty, use Sonnet for all types (better calibration)
+        const useHybridMode = !options.model && !options.questionType && difficulty !== 'advanced';
         const passes: { model: string; count: number; questionType?: QuestionType; writingType?: WritingType; allowedTypes?: QuestionType[] }[] = useHybridMode
           ? [
               { model: MODELS.questionGenerationStructured, count: Math.ceil(options.count / 2), allowedTypes: [...STRUCTURED_TYPES] },
               { model: MODELS.questionGenerationTyped, count: Math.ceil(options.count / 2), allowedTypes: [...TYPED_TYPES] },
             ]
           : [{
-              model: options.model || (options.questionType ? getModelForType(options.questionType) : MODELS.questionGenerationStructured),
+              model: options.model || (options.questionType ? getModelForType(options.questionType) : (difficulty === 'advanced' ? MODELS.questionGenerationTyped : MODELS.questionGenerationStructured)),
               count: options.count,
               questionType: options.questionType as QuestionType | undefined,
               writingType: options.writingType,
