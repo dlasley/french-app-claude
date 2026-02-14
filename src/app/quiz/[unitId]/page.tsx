@@ -637,8 +637,8 @@ export default function QuizPage() {
           <div className="space-y-4 mb-8">
             {questions.map((q, idx) => {
               const userAnswer = userAnswers[q.id];
-              // For writing questions, use evaluation result; for others, direct comparison
-              const isCorrect = q.type === 'writing' && evaluationResults[q.id]
+              // For typed-answer questions (writing and fill-in-blank), use evaluation result; for others, direct comparison
+              const isCorrect = (q.type === 'writing' || q.type === 'fill-in-blank') && evaluationResults[q.id]
                 ? evaluationResults[q.id].isCorrect
                 : userAnswer === q.correctAnswer;
               const evaluation = evaluationResults[q.id];
@@ -668,12 +668,12 @@ export default function QuizPage() {
                   <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
                     Your answer: <span className="font-semibold">{userAnswer || 'Not answered'}</span>
                   </p>
-                  {!isCorrect && q.type !== 'writing' && (
+                  {!isCorrect && q.type !== 'writing' && q.type !== 'fill-in-blank' && (
                     <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
                       Correct answer: <span className="font-semibold text-green-700 dark:text-green-400">{q.correctAnswer}</span>
                     </p>
                   )}
-                  {q.type === 'writing' && evaluation && (
+                  {(q.type === 'writing' || q.type === 'fill-in-blank') && evaluation && (
                     <div className="mt-2 space-y-2">
                       {evaluation.correctedAnswer && (
                         <p className="text-sm text-gray-600 dark:text-gray-300">

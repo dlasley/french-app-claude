@@ -43,7 +43,9 @@ let supabase!: ReturnType<typeof createScriptSupabase>;
 
 const MISTRAL_MODEL = 'mistral-large-latest';
 const BATCH_SIZE = 5;
-const RATE_LIMIT_DELAY_MS = 500; // Delay between batches to respect rate limits
+const RATE_LIMIT_DELAY_MS = 1000; // Base delay between batches to respect rate limits
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 2000; // Exponential backoff: 2s, 4s, 8s
 
 // Load the evaluation prompt from markdown file
 const SYSTEM_PROMPT = readFileSync(
@@ -313,49 +315,69 @@ async function main() {
   }
 
   const results: MistralAuditResult[] = [];
+  let currentDelay = RATE_LIMIT_DELAY_MS;
 
   for (let i = 0; i < questions.length; i += BATCH_SIZE) {
     const batch = questions.slice(i, i + BATCH_SIZE);
 
-    try {
-      const batchResults = await auditBatch(batch);
-      results.push(...batchResults);
-    } catch (err) {
-      console.error(`\n  Batch error at ${i}: ${err}`);
-      // Add parse-error placeholders for this batch
-      for (const q of batch) {
-        results.push({
-          id: q.id,
-          topic: q.topic,
-          type: q.type,
-          writing_type: q.writing_type,
-          generated_by: q.generated_by,
-          question: q.question,
-          answer: q.correct_answer,
-          answer_correct: true,
-          grammar_correct: true,
-          no_hallucination: true,
-          question_coherent: true,
-          natural_french: true,
-          register_appropriate: true,
-          difficulty_appropriate: true,
-          suggested_difficulty: null,
-          variations_valid: true,
-          culturally_appropriate: true,
-          missing_variations: [],
-          invalid_variations: [],
-          notes: `API_ERROR: ${String(err).substring(0, 200)}`,
-          severity: 'suggestion',
-        });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const batchResults = await auditBatch(batch);
+        results.push(...batchResults);
+        break;
+      } catch (err) {
+        const errStr = String(err);
+        const is429 = errStr.includes('429') || errStr.toLowerCase().includes('rate limit');
+
+        if (is429 && attempt < MAX_RETRIES) {
+          const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+          currentDelay = Math.min(currentDelay * 2, 10_000);
+          console.warn(`\n  ⚠️  Rate limited (429) at batch ${i}. Retry ${attempt + 1}/${MAX_RETRIES} in ${backoff / 1000}s... (base delay now ${currentDelay}ms)`);
+          await sleep(backoff);
+          continue;
+        }
+
+        // Non-retryable error or max retries exhausted
+        if (is429) {
+          console.error(`\n  ❌ Rate limit persists after ${MAX_RETRIES} retries at batch ${i}`);
+        } else {
+          console.error(`\n  Batch error at ${i}: ${err}`);
+        }
+
+        for (const q of batch) {
+          results.push({
+            id: q.id,
+            topic: q.topic,
+            type: q.type,
+            writing_type: q.writing_type,
+            generated_by: q.generated_by,
+            question: q.question,
+            answer: q.correct_answer,
+            answer_correct: true,
+            grammar_correct: true,
+            no_hallucination: true,
+            question_coherent: true,
+            natural_french: true,
+            register_appropriate: true,
+            difficulty_appropriate: true,
+            suggested_difficulty: null,
+            variations_valid: true,
+            culturally_appropriate: true,
+            missing_variations: [],
+            invalid_variations: [],
+            notes: `API_ERROR: ${String(err).substring(0, 200)}`,
+            severity: 'suggestion',
+          });
+        }
       }
     }
 
     const pct = Math.round(((i + batch.length) / questions.length) * 100);
     process.stdout.write(`\r  Progress: ${i + batch.length}/${questions.length} (${pct}%)`);
 
-    // Rate limiting between batches
+    // Rate limiting between batches (adaptive — increases after 429s)
     if (i + BATCH_SIZE < questions.length) {
-      await sleep(RATE_LIMIT_DELAY_MS);
+      await sleep(currentDelay);
     }
   }
 
@@ -373,27 +395,32 @@ async function main() {
     r.answer_correct && r.grammar_correct && r.no_hallucination && r.question_coherent &&
     r.natural_french && r.register_appropriate;
 
-  const gatePass = results.filter(r => isGatePass(r));
-  const gateFlagged = results.filter(r => !isGatePass(r));
-  const all9Flagged = results.filter(r =>
+  const parseErrors = results.filter(r => r.notes.startsWith('PARSE_ERROR:') || r.notes.startsWith('API_ERROR:'));
+  const evaluated = results.filter(r => !r.notes.startsWith('PARSE_ERROR:') && !r.notes.startsWith('API_ERROR:'));
+  const evalCount = evaluated.length;
+  const gatePass = evaluated.filter(r => isGatePass(r));
+  const gateFlagged = evaluated.filter(r => !isGatePass(r));
+  const all9Flagged = evaluated.filter(r =>
     !r.answer_correct || !r.grammar_correct || !r.no_hallucination || !r.question_coherent ||
     !r.natural_french || !r.register_appropriate || !r.difficulty_appropriate || !r.variations_valid ||
     !r.culturally_appropriate
   );
-  const parseErrors = results.filter(r => r.notes.startsWith('PARSE_ERROR:') || r.notes.startsWith('API_ERROR:'));
-  const critical = results.filter(r => r.severity === 'critical');
-  const minor = results.filter(r => r.severity === 'minor');
+  const critical = evaluated.filter(r => r.severity === 'critical');
+  const minor = evaluated.filter(r => r.severity === 'minor');
 
   console.log('='.repeat(60));
   console.log('MISTRAL AUDIT & REMEDIATION COMPLETE');
   console.log('='.repeat(60));
   console.log(`  Model:             ${MISTRAL_MODEL}`);
-  console.log(`  Total evaluated:   ${results.length}`);
-  console.log(`  6-gate pass:       ${gatePass.length} (${(gatePass.length / results.length * 100).toFixed(1)}%) → would be activated`);
-  console.log(`  6-gate flagged:    ${gateFlagged.length} (${(gateFlagged.length / results.length * 100).toFixed(1)}%) → would be flagged`);
-  console.log(`  All 9 clean:       ${results.length - all9Flagged.length} (${((results.length - all9Flagged.length) / results.length * 100).toFixed(1)}%) (no issues at all)`);
+  console.log(`  Total attempted:   ${results.length}`);
   if (parseErrors.length > 0) {
-    console.log(`  Parse/API errors:  ${parseErrors.length} (not counted)`);
+    console.log(`  Parse/API errors:  ${parseErrors.length} (skipped — status unchanged)`);
+  }
+  console.log(`  Actually evaluated:${evalCount}`);
+  if (evalCount > 0) {
+    console.log(`  6-gate pass:       ${gatePass.length}/${evalCount} (${(gatePass.length / evalCount * 100).toFixed(1)}%) → would be activated`);
+    console.log(`  6-gate flagged:    ${gateFlagged.length}/${evalCount} (${(gateFlagged.length / evalCount * 100).toFixed(1)}%) → would be flagged`);
+    console.log(`  All 9 clean:       ${evalCount - all9Flagged.length}/${evalCount} (${((evalCount - all9Flagged.length) / evalCount * 100).toFixed(1)}%) (no issues at all)`);
   }
   console.log();
 
@@ -414,27 +441,27 @@ async function main() {
 
   console.log('Gate criteria (all must pass for active):');
   for (const c of gateCriteria) {
-    const count = results.filter(r => !(r[c.key as keyof MistralAuditResult])).length;
-    console.log(`  ${c.label.padEnd(22)} ${count} (${(count / results.length * 100).toFixed(1)}%)`);
+    const count = evaluated.filter(r => !(r[c.key as keyof MistralAuditResult])).length;
+    console.log(`  ${c.label.padEnd(22)} ${count}${evalCount > 0 ? ` (${(count / evalCount * 100).toFixed(1)}%)` : ''}`);
   }
   console.log('\nSoft signals (remediated, not gated):');
   for (const c of softCriteria) {
-    const count = results.filter(r => !(r[c.key as keyof MistralAuditResult])).length;
-    console.log(`  ${c.label.padEnd(22)} ${count} (${(count / results.length * 100).toFixed(1)}%)`);
+    const count = evaluated.filter(r => !(r[c.key as keyof MistralAuditResult])).length;
+    console.log(`  ${c.label.padEnd(22)} ${count}${evalCount > 0 ? ` (${(count / evalCount * 100).toFixed(1)}%)` : ''}`);
   }
 
   // Severity breakdown
   console.log(`\nSeverity distribution:`);
   console.log(`  Critical:   ${critical.length}`);
   console.log(`  Minor:      ${minor.length}`);
-  console.log(`  Suggestion: ${results.filter(r => r.severity === 'suggestion').length}`);
+  console.log(`  Suggestion: ${evaluated.filter(r => r.severity === 'suggestion').length}`);
 
   // Variations analysis
-  const withVariations = results.filter(r =>
+  const withVariations = evaluated.filter(r =>
     r.type === 'fill-in-blank' || r.type === 'writing'
   );
-  const totalMissing = results.reduce((sum, r) => sum + r.missing_variations.length, 0);
-  const totalInvalid = results.reduce((sum, r) => sum + r.invalid_variations.length, 0);
+  const totalMissing = evaluated.reduce((sum, r) => sum + r.missing_variations.length, 0);
+  const totalInvalid = evaluated.reduce((sum, r) => sum + r.invalid_variations.length, 0);
   if (withVariations.length > 0) {
     console.log(`\nVariation analysis (${withVariations.length} typed-answer questions):`);
     console.log(`  Missing variations suggested: ${totalMissing}`);
@@ -488,7 +515,7 @@ async function main() {
   };
 
   const severityOrder = { critical: 0, minor: 1, suggestion: 2 };
-  const gateFailures = gateFlagged.filter(r => !r.notes.startsWith('PARSE_ERROR:') && !r.notes.startsWith('API_ERROR:'));
+  const gateFailures = gateFlagged;
   const softOnly = all9Flagged.filter(r => isGatePass(r));
 
   if (gateFailures.length > 0) {
@@ -507,23 +534,23 @@ async function main() {
     for (const f of sorted) printQuestion(f);
   }
 
-  // Pass rate by type (6-gate)
+  // Pass rate by type (6-gate, evaluated only)
   console.log('\n' + '-'.repeat(60));
   console.log('6-GATE PASS RATE BY TYPE');
   console.log('-'.repeat(60));
-  const types = [...new Set(results.map(r => r.type))];
+  const types = [...new Set(evaluated.map(r => r.type))];
   for (const t of types) {
-    const typeResults = results.filter(r => r.type === t);
+    const typeResults = evaluated.filter(r => r.type === t);
     const typePass = typeResults.filter(r => isGatePass(r)).length;
     console.log(`  ${t}: ${typePass}/${typeResults.length} pass (${(typePass / typeResults.length * 100).toFixed(1)}%)`);
   }
 
-  // Pass rate by difficulty (6-gate)
+  // Pass rate by difficulty (6-gate, evaluated only)
   console.log('\n' + '-'.repeat(60));
   console.log('6-GATE PASS RATE BY DIFFICULTY');
   console.log('-'.repeat(60));
   for (const d of ['beginner', 'intermediate', 'advanced']) {
-    const dResults = results.filter(r => questionMap.get(r.id)?.difficulty === d);
+    const dResults = evaluated.filter(r => questionMap.get(r.id)?.difficulty === d);
     if (dResults.length === 0) continue;
     const dPass = dResults.filter(r => isGatePass(r)).length;
     console.log(`  ${d}: ${dPass}/${dResults.length} pass (${(dPass / dResults.length * 100).toFixed(1)}%)`);

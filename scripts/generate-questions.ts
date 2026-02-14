@@ -1104,6 +1104,62 @@ async function generateAllQuestions(options: CLIOptions) {
     console.log('📡 Fetching existing content hashes for deduplication...');
     existingHashes = await fetchExistingHashes(supabaseClient, tableName, options.experimentId);
     console.log(`   Found ${existingHashes.size} existing question hashes\n`);
+
+    // Insert preliminary batch record (updated with final stats at end)
+    const batchModel = options.model || 'hybrid';
+    const structuredModel = options.generationModelStructured || MODELS.questionGenerationStructured;
+    const typedModel = options.generationModelTyped || MODELS.questionGenerationTyped;
+    const validationModel = options.validationModel || MODELS.answerValidation;
+
+    const preliminaryBatch: Record<string, unknown> = {
+      id: options.batchId,
+      model: batchModel,
+      unit_id: options.unitId || 'all',
+      difficulty: options.difficulty || 'all',
+      type_filter: options.questionType || 'all',
+      question_count: 0,
+      inserted_count: 0,
+      duplicate_count: 0,
+      error_count: 0,
+      config: {
+        git: { branch: gitInfo.branch, commit: gitInfo.commit },
+        models: {
+          generation_structured: structuredModel,
+          generation_typed: typedModel,
+          validation: validationModel,
+          audit: MODELS.audit,
+          pdf_conversion: MODELS.pdfConversion,
+          topic_extraction: MODELS.topicExtraction,
+        },
+        cli_args: {
+          unit: options.unitId || null,
+          type: options.questionType || null,
+          difficulty: options.difficulty || null,
+          batch_id: options.batchId,
+          source_file: options.sourceFile || null,
+        },
+      },
+      quality_metrics: {},
+      prompt_hash: crypto.createHash('sha256')
+        .update(structuredModel + typedModel)
+        .digest('hex')
+        .substring(0, 16),
+    };
+
+    if (isExperiment) {
+      preliminaryBatch.experiment_id = options.experimentId;
+      preliminaryBatch.cohort = options.cohort;
+    }
+
+    const { error: batchInsertError } = await supabaseClient
+      .from(batchTableName)
+      .insert(preliminaryBatch);
+
+    if (batchInsertError) {
+      console.error('\n❌ Failed to create batch record:', batchInsertError.message);
+      process.exit(1);
+    }
+    console.log(`📦 Batch record created: ${options.batchId}`);
   }
 
   const allQuestions: Question[] = [];
@@ -1293,78 +1349,37 @@ async function generateAllQuestions(options: CLIOptions) {
         console.log('   The question pool is filling up. This is normal.');
       }
     }
-    // Insert batch metadata record
-    if (supabaseClient && totalInserted > 0) {
-      const batchModel = options.model || 'hybrid';
-      const structuredModel = options.generationModelStructured || MODELS.questionGenerationStructured;
-      const typedModel = options.generationModelTyped || MODELS.questionGenerationTyped;
-      const validationModel = options.validationModel || MODELS.answerValidation;
-
-      const batchRecord: Record<string, unknown> = {
-        id: options.batchId,
-        model: batchModel,
-        unit_id: options.unitId || 'all',
-        difficulty: options.difficulty || 'all',
-        type_filter: options.questionType || 'all',
-        question_count: totalGenerated,
-        inserted_count: totalInserted,
-        duplicate_count: totalSkippedDuplicates,
-        error_count: totalAttempted - Math.ceil(totalGenerated / options.count),
-        config: {
-          git: {
-            branch: gitInfo.branch,
-            commit: gitInfo.commit,
-          },
-          models: {
-            generation_structured: structuredModel,
-            generation_typed: typedModel,
-            validation: validationModel,
-            audit: MODELS.audit,
-            pdf_conversion: MODELS.pdfConversion,
-            topic_extraction: MODELS.topicExtraction,
-          },
-          cli_args: {
-            unit: options.unitId || null,
-            type: options.questionType || null,
-            difficulty: options.difficulty || null,
-            batch_id: options.batchId,
-            source_file: options.sourceFile || null,
-          },
-        },
-        quality_metrics: {
-          meta_filtered: aggregateStats.meta_filtered,
-          type_drift: aggregateStats.type_drift,
-          structural_rejected: aggregateStats.structural_rejected,
-          validation_rejected: aggregateStats.validation_rejected,
-          difficulty_relabeled: aggregateStats.difficulty_relabeled,
-          validation_pass_rate: totalGenerated + aggregateStats.structural_rejected + aggregateStats.validation_rejected > 0
-            ? +(totalGenerated / (totalGenerated + aggregateStats.structural_rejected + aggregateStats.validation_rejected) * 100).toFixed(1)
-            : 100,
-        },
-        prompt_hash: crypto.createHash('sha256')
-          .update(structuredModel + typedModel)
-          .digest('hex')
-          .substring(0, 16),
-      };
-
-      // Add experiment linkage fields
-      if (isExperiment) {
-        batchRecord.experiment_id = options.experimentId;
-        batchRecord.cohort = options.cohort;
-      }
-
+    // Update batch record with final stats
+    if (supabaseClient) {
       const { error: batchError } = await supabaseClient
         .from(batchTableName)
-        .insert(batchRecord);
+        .update({
+          question_count: totalGenerated,
+          inserted_count: totalInserted,
+          duplicate_count: totalSkippedDuplicates,
+          error_count: totalAttempted - Math.ceil(totalGenerated / options.count),
+          quality_metrics: {
+            meta_filtered: aggregateStats.meta_filtered,
+            type_drift: aggregateStats.type_drift,
+            structural_rejected: aggregateStats.structural_rejected,
+            validation_rejected: aggregateStats.validation_rejected,
+            difficulty_relabeled: aggregateStats.difficulty_relabeled,
+            validation_pass_rate: totalGenerated + aggregateStats.structural_rejected + aggregateStats.validation_rejected > 0
+              ? +(totalGenerated / (totalGenerated + aggregateStats.structural_rejected + aggregateStats.validation_rejected) * 100).toFixed(1)
+              : 100,
+          },
+        })
+        .eq('id', options.batchId);
 
       if (batchError) {
-        console.error('\n⚠️  Failed to insert batch metadata:', batchError.message);
+        console.error('\n❌ Failed to update batch metadata:', batchError.message);
+        process.exit(1);
       } else {
-        console.log(`\n📦 Batch metadata saved: ${options.batchId}`);
+        console.log(`\n📦 Batch metadata updated: ${options.batchId}`);
       }
 
       // Update experiment cohorts JSONB with this cohort's data
-      if (isExperiment && supabaseClient && !batchError) {
+      if (isExperiment && !batchError) {
         const { data: experiment } = await supabaseClient
           .from('experiments')
           .select('cohorts')
