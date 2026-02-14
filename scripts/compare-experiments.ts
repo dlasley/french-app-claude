@@ -14,8 +14,9 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { writeFileSync } from 'fs';
+import { createScriptSupabase, fetchAllPages } from './lib/db-queries';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -125,33 +126,6 @@ Optional:
 }
 
 // ── Data fetching ──────────────────────────────────────────────────────
-
-const PAGE_SIZE = 1000;
-
-async function fetchExperimentQuestions(
-  supabase: SupabaseClient,
-  experimentId: string,
-): Promise<QuestionRow[]> {
-  const all: QuestionRow[] = [];
-  let page = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from('experiment_questions')
-      .select('*')
-      .eq('experiment_id', experimentId)
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-    if (error) throw new Error(`Fetch error: ${error.message}`);
-    if (!data || data.length === 0) break;
-
-    all.push(...(data as QuestionRow[]));
-    if (data.length < PAGE_SIZE) break;
-    page++;
-  }
-
-  return all;
-}
 
 async function fetchBatchMetrics(
   supabase: SupabaseClient,
@@ -486,14 +460,7 @@ function generateConclusion(
 async function main() {
   const options = parseArgs();
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseKey) {
-    console.error('Missing Supabase credentials in .env.local');
-    process.exit(1);
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabase = createScriptSupabase({ write: true });
 
   // 1. Fetch experiment record
   const { data: experiment, error: expError } = await supabase
@@ -515,7 +482,11 @@ async function main() {
 
   // 2. Fetch all experiment questions
   console.log('\nFetching experiment questions...');
-  const allQuestions = await fetchExperimentQuestions(supabase, options.experimentId);
+  const allQuestions = await fetchAllPages<QuestionRow>(
+    supabase,
+    'experiment_questions',
+    (q: any) => q.eq('experiment_id', options.experimentId),
+  );
 
   // 3. Group by cohort
   const cohortMap = new Map<string, QuestionRow[]>();

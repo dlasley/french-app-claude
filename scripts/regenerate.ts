@@ -15,7 +15,6 @@
  *   --skip-convert  Skip PDF conversion (use existing markdown)
  *   --skip-topics   Skip topic extraction (use existing topics in units.ts)
  *   --write-db      Sync generated questions to Supabase
- *   --sync-db       (deprecated alias for --write-db)
  *   --audit         Run quality audit after generation (requires --write-db)
  *   --auditor <m>   Audit model: 'mistral' (default) or 'sonnet'
  *   --dry-run       Show what would be done without executing
@@ -255,12 +254,7 @@ function parseArgs(): PipelineOptions {
     process.exit(0);
   }
 
-  // Handle --write-db (canonical) and --sync-db (deprecated alias)
-  const hasSyncDb = args.includes('--sync-db');
   const hasWriteDb = args.includes('--write-db');
-  if (hasSyncDb && !hasWriteDb) {
-    console.warn('⚠️  --sync-db is deprecated, use --write-db instead');
-  }
 
   // Parse --auditor flag (default: mistral)
   const auditorIdx = args.indexOf('--auditor');
@@ -298,7 +292,7 @@ function parseArgs(): PipelineOptions {
     skipConvert: args.includes('--skip-convert'),
     forceConvert: args.includes('--force-convert'),
     skipTopics: args.includes('--skip-topics'),
-    syncDb: hasWriteDb || hasSyncDb,
+    syncDb: hasWriteDb,
     audit: args.includes('--audit'),
     auditor: auditorValue as 'mistral' | 'sonnet',
     dryRun: args.includes('--dry-run'),
@@ -345,7 +339,6 @@ Options:
   --force-convert Force PDF reconversion even if markdown exists
   --skip-topics   Skip topic extraction (use existing topics in units.ts)
   --write-db      Sync generated questions to database
-  --sync-db       (deprecated alias for --write-db)
   --audit         Run quality audit after generation (requires --write-db)
   --auditor <m>   Audit model: 'mistral' (default) or 'sonnet'
   --dry-run       Show what would be done without executing
@@ -1109,25 +1102,6 @@ async function runPipelineForUnit(
  */
 async function main() {
   const options = parseArgs();
-
-  // Git safety check
-  const gitBranch = execSync('git branch --show-current', { encoding: 'utf-8' }).trim();
-  const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8' }).trim();
-  const gitClean = gitStatus.length === 0;
-
-  if (options.experimentId && gitBranch === 'main') {
-    console.error('❌ Experiments must run on a branch, not main.');
-    process.exit(1);
-  }
-
-  if (!gitClean && !options.allowDirty) {
-    console.error('❌ Working tree has uncommitted changes. Use --allow-dirty to override.');
-    process.exit(1);
-  }
-
-  if (!gitClean && options.allowDirty) {
-    console.warn('⚠️  Working tree has uncommitted changes (--allow-dirty).');
-  }
 
   console.log(`
 ╔════════════════════════════════════════════════════════════════╗

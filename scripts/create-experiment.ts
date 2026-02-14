@@ -28,10 +28,10 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { execSync } from 'child_process';
 import readline from 'readline';
 import { MODELS } from './lib/config';
+import { getGitInfo, checkGitState } from './lib/git-utils';
+import { createScriptSupabase, fetchAllPages, PAGE_SIZE } from './lib/db-queries';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -45,12 +45,6 @@ interface CLIOptions {
   description?: string;
   outputId: boolean;
   allowDirty: boolean;
-}
-
-interface GitInfo {
-  branch: string;
-  commit: string;
-  clean: boolean;
 }
 
 interface CohortEntry {
@@ -147,37 +141,6 @@ Options:
   --output-id                   Print only UUID to stdout
   --allow-dirty                 Allow uncommitted changes
   `);
-}
-
-// ── Git helpers ────────────────────────────────────────────────────────
-
-function getGitInfo(): GitInfo {
-  const branch = execSync('git branch --show-current', { encoding: 'utf-8' }).trim();
-  const commit = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
-  const status = execSync('git status --porcelain', { encoding: 'utf-8' }).trim();
-  return { branch, commit, clean: status.length === 0 };
-}
-
-function checkGitSafety(git: GitInfo, allowDirty: boolean, log: (...args: string[]) => void): void {
-  if (git.branch === 'main') {
-    log('Error: Experiments must run on a branch, not main.');
-    log('Create a branch first: git checkout -b experiment/<name>');
-    process.exit(1);
-  }
-
-  if (!git.clean && !allowDirty) {
-    log('Error: Working tree has uncommitted changes.');
-    log('Commit your changes first, or use --allow-dirty to override.');
-    log('');
-    log('Git commit is the sole provenance anchor for experiment reproducibility.');
-    log('Running with uncommitted changes means the experiment state cannot be recreated.');
-    process.exit(1);
-  }
-
-  if (!git.clean && allowDirty) {
-    log('Warning: Working tree has uncommitted changes (--allow-dirty).');
-    log('The recorded git commit may not fully represent the pipeline state.');
-  }
 }
 
 // ── Interactive prompts ────────────────────────────────────────────────
@@ -295,39 +258,6 @@ function buildPipelineConfig(): Record<string, unknown> {
   };
 }
 
-// ── Pagination helper ──────────────────────────────────────────────────
-
-const PAGE_SIZE = 1000;
-
-async function fetchAllPages<T>(
-  supabase: SupabaseClient,
-  table: string,
-  buildQuery: (query: any) => any,
-  selectFields = '*',
-): Promise<T[]> {
-  const all: T[] = [];
-  let page = 0;
-
-  while (true) {
-    let query = supabase
-      .from(table)
-      .select(selectFields)
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-    query = buildQuery(query);
-    const { data, error } = await query;
-
-    if (error) throw new Error(`Fetch error on ${table}: ${error.message}`);
-    if (!data || data.length === 0) break;
-
-    all.push(...(data as T[]));
-    if (data.length < PAGE_SIZE) break;
-    page++;
-  }
-
-  return all;
-}
-
 // ── Main ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -342,18 +272,10 @@ async function main(): Promise<void> {
   const git = getGitInfo();
   log(`\nNew Experiment Setup\n`);
   log(`Git: branch ${git.branch} @ ${git.commit} (${git.clean ? 'clean' : 'dirty'})`);
-  checkGitSafety(git, options.allowDirty, (...args) => log(...args));
+  checkGitState({ experimentId: 'new', allowDirty: options.allowDirty });
 
   // 2. Init Supabase (requires secret key for writes)
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SECRET_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    log('Error: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY required.');
-    process.exit(1);
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabase = createScriptSupabase({ write: true });
 
   // 3. Count active questions for this unit
   const { count: activeCount, error: countError } = await supabase

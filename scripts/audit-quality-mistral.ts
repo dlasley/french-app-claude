@@ -24,10 +24,10 @@ import { config } from 'dotenv';
 config({ path: '.env.local' });
 
 import { Mistral } from '@mistralai/mistralai';
-import { createClient } from '@supabase/supabase-js';
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import { execSync } from 'child_process';
+import { checkGitState } from './lib/git-utils';
+import { createScriptSupabase, PAGE_SIZE } from './lib/db-queries';
 
 // Validate Mistral API key
 if (!process.env.MISTRAL_API_KEY) {
@@ -38,20 +38,8 @@ if (!process.env.MISTRAL_API_KEY) {
 
 const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
 
-// Use secret key when --write-db is set (needs write access)
-const useSecretKey = process.argv.includes('--write-db');
-const supabaseKey = useSecretKey
-  ? (process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-  : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-if (useSecretKey && !process.env.SUPABASE_SECRET_KEY) {
-  console.warn('Warning: --write-db requires SUPABASE_SECRET_KEY for write access. Falling back to anon key.');
-}
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseKey,
-);
+// Supabase client — initialized in main() after parseArgs()
+let supabase!: ReturnType<typeof createScriptSupabase>;
 
 const MISTRAL_MODEL = 'mistral-large-latest';
 const BATCH_SIZE = 5;
@@ -79,28 +67,6 @@ interface CLIOptions {
   allowDirty?: boolean;
 }
 
-function checkGitState(options: CLIOptions): { branch: string; commit: string } {
-  const branch = execSync('git branch --show-current', { encoding: 'utf-8' }).trim();
-  const commit = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
-  const status = execSync('git status --porcelain', { encoding: 'utf-8' }).trim();
-  const clean = status.length === 0;
-
-  if (options.experimentId && branch === 'main') {
-    console.error('Error: Experiments must run on a branch, not main.');
-    process.exit(1);
-  }
-
-  if (!clean && !options.allowDirty) {
-    console.error('Error: Working tree has uncommitted changes. Use --allow-dirty to override.');
-    process.exit(1);
-  }
-
-  if (!clean && options.allowDirty) {
-    console.warn('Warning: Working tree has uncommitted changes (--allow-dirty).');
-  }
-
-  return { branch, commit };
-}
 
 function parseArgs(): CLIOptions {
   const args = process.argv.slice(2);
@@ -170,7 +136,6 @@ export interface MistralAuditResult {
   severity: 'critical' | 'minor' | 'suggestion';
 }
 
-const PAGE_SIZE = 1000;
 
 async function fetchQuestions(options: CLIOptions, tableName: string): Promise<QuestionRow[]> {
   let all: QuestionRow[] = [];
@@ -318,8 +283,14 @@ function sleep(ms: number): Promise<void> {
 async function main() {
   const options = parseArgs();
 
+  // Initialize Supabase (write mode if --write-db)
+  supabase = createScriptSupabase({ write: options.writeDb });
+
   // Git safety check
-  checkGitState(options);
+  checkGitState({
+    experimentId: options.experimentId,
+    allowDirty: options.allowDirty,
+  });
 
   // Determine table target based on experiment mode
   const tableName = options.experimentId ? 'experiment_questions' : 'questions';

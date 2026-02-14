@@ -9,7 +9,6 @@
  *   --difficulty <level>    Generate for specific difficulty (beginner|intermediate|advanced)
  *   --count <n>             Questions per topic/difficulty (default: 10)
  *   --write-db              Sync to database (with deduplication)
- *   --sync-db               (deprecated alias for --write-db)
  *   --dry-run               Show what would be generated without actually generating
  *   --batch-id <id>         Custom batch ID (default: auto-generated from date)
  *   --source-file <path>    Source learning material file path for tracking
@@ -33,13 +32,14 @@ import { config } from 'dotenv';
 config({ path: '.env.local' });
 
 import Anthropic from '@anthropic-ai/sdk';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import { execSync } from 'child_process';
 import { units } from '../src/lib/units';
 import { loadUnitMaterials, extractTopicContent } from '../src/lib/learning-materials';
 import { inferWritingType, WritingType } from './lib/writing-type-inference';
 import { MODELS, STRUCTURED_TYPES, TYPED_TYPES, getModelForType, QuestionType } from './lib/config';
+import { checkGitState } from './lib/git-utils';
+import { createScriptSupabase } from './lib/db-queries';
 import { Mistral } from '@mistralai/mistralai';
 
 const anthropic = new Anthropic({
@@ -222,10 +222,6 @@ function parseArgs(): CLIOptions {
       case '--write-db':
         options.syncDb = true;
         break;
-      case '--sync-db':
-        console.warn('⚠️  --sync-db is deprecated, use --write-db instead');
-        options.syncDb = true;
-        break;
       case '--dry-run':
         options.dryRun = true;
         break;
@@ -339,56 +335,6 @@ function computeContentHash(
   return crypto.createHash('md5').update(normalized).digest('hex');
 }
 
-/**
- * Initialize Supabase client for database operations
- */
-function initSupabase(): SupabaseClient | null {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // Use secret key (bypasses RLS) for script operations, fall back to anon key
-  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    console.log('⚠️  Supabase credentials not found in environment');
-    return null;
-  }
-
-  if (!process.env.SUPABASE_SECRET_KEY) {
-    console.log('⚠️  SUPABASE_SECRET_KEY not set — using anon key (may fail with RLS restrictions)');
-  }
-
-  return createClient(supabaseUrl, supabaseKey);
-}
-
-/**
- * Check git state and enforce clean commit policy.
- * Returns git info for batch provenance recording.
- */
-function checkGitState(options: CLIOptions): { branch: string; commit: string } {
-  const branch = execSync('git branch --show-current', { encoding: 'utf-8' }).trim();
-  const commit = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
-  const status = execSync('git status --porcelain', { encoding: 'utf-8' }).trim();
-  const clean = status.length === 0;
-
-  // Experiment mode: block main branch
-  if (options.experimentId && branch === 'main') {
-    console.error('❌ Experiments must run on a branch, not main.');
-    console.error('   Create a branch first: git checkout -b experiment/<name>');
-    process.exit(1);
-  }
-
-  // Dirty tree check
-  if (!clean && !options.allowDirty) {
-    console.error('❌ Working tree has uncommitted changes.');
-    console.error('   Commit your changes first, or use --allow-dirty to override.');
-    process.exit(1);
-  }
-
-  if (!clean && options.allowDirty) {
-    console.warn('⚠️  Working tree has uncommitted changes (--allow-dirty).');
-  }
-
-  return { branch, commit };
-}
 
 /**
  * Fetch existing content hashes from database for deduplication.
@@ -1144,7 +1090,10 @@ async function generateAllQuestions(options: CLIOptions) {
   console.log();
 
   // Git safety check (records provenance for batch config)
-  const gitInfo = checkGitState(options);
+  const gitInfo = checkGitState({
+    experimentId: options.experimentId,
+    allowDirty: options.allowDirty,
+  });
 
   // Determine table targets based on experiment mode
   const isExperiment = !!options.experimentId;
@@ -1152,16 +1101,11 @@ async function generateAllQuestions(options: CLIOptions) {
   const batchTableName = isExperiment ? 'experiment_batches' : 'batches';
 
   // Initialize Supabase if syncing to database
-  let supabaseClient: ReturnType<typeof initSupabase> = null;
+  let supabaseClient: SupabaseClient | null = null;
   let existingHashes = new Set<string>();
 
   if (options.syncDb) {
-    supabaseClient = initSupabase();
-    if (!supabaseClient) {
-      console.error('❌ Cannot sync to DB: Supabase not configured');
-      console.log('   Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local');
-      process.exit(1);
-    }
+    supabaseClient = createScriptSupabase({ write: true });
     console.log('📡 Fetching existing content hashes for deduplication...');
     existingHashes = await fetchExistingHashes(supabaseClient, tableName, options.experimentId);
     console.log(`   Found ${existingHashes.size} existing question hashes\n`);
