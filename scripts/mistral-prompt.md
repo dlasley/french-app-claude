@@ -89,6 +89,12 @@ For each question, evaluate these **8 criteria**:
    - Common alternate phrasings that a student would naturally produce should be included
    - Set to TRUE if there are no `acceptable_variations` (nothing to evaluate)
 
+9. **culturally_appropriate** — Does the question avoid cultural stereotyping, homogenization of cultural groups, or stereotypical name-nationality pairings? Flag FALSE if:
+   - A name is paired with a stereotypical nationality/ethnicity (e.g., "Yuki est japonaise", "Chen est chinois")
+   - Distinct cultures are clustered as interchangeable (e.g., Chinese and Japanese references in the same question as if equivalent)
+   - Activities or traits are assigned along gender stereotypes
+   - Note: Questions about French/francophone culture are fine. The concern is stereotyping, not cultural reference.
+
 ## Output Format
 
 For each question, respond with a JSON object (no markdown fences, no extra text):
@@ -105,6 +111,7 @@ For each question, respond with a JSON object (no markdown fences, no extra text
   "difficulty_appropriate": true/false,
   "suggested_difficulty": "beginner|intermediate|advanced or null if difficulty_appropriate is true",
   "variations_valid": true/false,
+  "culturally_appropriate": true/false,
   "missing_variations": ["variation1", "variation2"],
   "invalid_variations": ["variation1"],
   "notes": "Brief explanation of issues, or 'OK' if all pass",
@@ -120,4 +127,4 @@ When evaluating a batch of questions, return a JSON array of these objects.
 - **minor** — Unnatural phrasing, missing obvious variation, register mismatch, or overly strict/lenient variation. These affect quality but won't teach wrong French.
 - **suggestion** — Style improvement, additional variation that would help, or minor naturalness tweak. Low priority but worth tracking.
 
-If all 8 criteria pass and there are no missing/invalid variations, set severity to "suggestion" and notes to "OK".
+If all 9 criteria pass and there are no missing/invalid variations, set severity to "suggestion" and notes to "OK".

@@ -661,6 +661,7 @@ For each question:
    A true/false about one fact = beginner. A single fill-in-blank with one verb form = beginner. Choosing tu vs. vous = intermediate. One short sentence with one grammar rule = intermediate.
    Set suggested_difficulty to the correct level. If the label is already correct, repeat the labeled difficulty.
 7. Questions should only test grammar and vocabulary that appears in or is directly implied by the question's topic context. If a question requires grammar concepts clearly beyond what would be covered for this topic in a first-year French course (e.g., literary tenses, subjunctive mood, complex relative pronouns), mark answer_valid as false with a note explaining the scope issue.
+8. For questions with gendered answers (il/elle, masculine/feminine adjective forms), if the question does not explicitly specify gender, include both gendered forms in acceptable_variations.
 
 Respond with ONLY valid JSON (no markdown, no code fences):
 {"results": [{"id": "q1", "answer_valid": true, "acceptable_variations": ["var1", "var2"], "suggested_difficulty": "beginner", "notes": "OK"}, ...]}
@@ -952,6 +953,19 @@ All generated French must conform to these rules. Violations will cause the ques
 - Use "avoir" for physical states: avoir faim, avoir soif, avoir chaud (NOT "être faim")
 - Do NOT tie day-of-week to specific calendar dates without year context (e.g., avoid "What day is January 15?")
 - Days of the week are NOT capitalized in French: "lundi", "mardi"
+
+## Diversity & Representation
+
+**Names & People**
+- Use names from across the French-speaking world: France, Senegal, Côte d'Ivoire, Haiti, Belgium, Switzerland, Quebec, Morocco, etc.
+- Do NOT pair names with stereotypical nationalities (e.g., "Yuki est japonaise", "Chen est chinois")
+- Vary gender across questions — do not default to masculine examples
+- When a question uses a gendered form (il/elle, -eur/-euse), include the alternate gendering in acceptable_variations where grammatically equivalent
+
+**Cultural Content**
+- Do NOT cluster or homogenize cultural groups (e.g., pairing Chinese and Japanese references as if interchangeable)
+- Avoid stereotypical activity-gender associations (e.g., only girls cooking, only boys playing sports)
+- When referencing hobbies, food, or customs, draw from diverse francophone cultures, not just metropolitan France
 
 ## Forbidden Content — DO NOT create questions about:
 - Learning philosophy (growth mindset, making mistakes, study tips, language acquisition)

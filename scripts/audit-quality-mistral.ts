@@ -163,6 +163,7 @@ export interface MistralAuditResult {
   difficulty_appropriate: boolean;
   suggested_difficulty: string | null;
   variations_valid: boolean;
+  culturally_appropriate: boolean;
   missing_variations: string[];
   invalid_variations: string[];
   notes: string;
@@ -274,6 +275,7 @@ async function auditBatch(questions: QuestionRow[]): Promise<MistralAuditResult[
         difficulty_appropriate: r.difficulty_appropriate !== false,
         suggested_difficulty: (typeof r.suggested_difficulty === 'string' ? r.suggested_difficulty : null),
         variations_valid: r.variations_valid !== false,
+        culturally_appropriate: r.culturally_appropriate !== false,
         missing_variations: Array.isArray(r.missing_variations) ? r.missing_variations as string[] : [],
         invalid_variations: Array.isArray(r.invalid_variations) ? r.invalid_variations as string[] : [],
         notes: (r.notes as string) || 'OK',
@@ -300,6 +302,7 @@ async function auditBatch(questions: QuestionRow[]): Promise<MistralAuditResult[
       difficulty_appropriate: true,
       suggested_difficulty: null,
       variations_valid: true,
+      culturally_appropriate: true,
       missing_variations: [],
       invalid_variations: [],
       notes: `PARSE_ERROR: ${content.substring(0, 200)}`,
@@ -370,6 +373,7 @@ async function main() {
           difficulty_appropriate: true,
           suggested_difficulty: null,
           variations_valid: true,
+          culturally_appropriate: true,
           missing_variations: [],
           invalid_variations: [],
           notes: `API_ERROR: ${String(err).substring(0, 200)}`,
@@ -403,9 +407,10 @@ async function main() {
 
   const gatePass = results.filter(r => isGatePass(r));
   const gateFlagged = results.filter(r => !isGatePass(r));
-  const all8Flagged = results.filter(r =>
+  const all9Flagged = results.filter(r =>
     !r.answer_correct || !r.grammar_correct || !r.no_hallucination || !r.question_coherent ||
-    !r.natural_french || !r.register_appropriate || !r.difficulty_appropriate || !r.variations_valid
+    !r.natural_french || !r.register_appropriate || !r.difficulty_appropriate || !r.variations_valid ||
+    !r.culturally_appropriate
   );
   const parseErrors = results.filter(r => r.notes.startsWith('PARSE_ERROR:') || r.notes.startsWith('API_ERROR:'));
   const critical = results.filter(r => r.severity === 'critical');
@@ -418,7 +423,7 @@ async function main() {
   console.log(`  Total evaluated:   ${results.length}`);
   console.log(`  6-gate pass:       ${gatePass.length} (${(gatePass.length / results.length * 100).toFixed(1)}%) → would be activated`);
   console.log(`  6-gate flagged:    ${gateFlagged.length} (${(gateFlagged.length / results.length * 100).toFixed(1)}%) → would be flagged`);
-  console.log(`  All 8 clean:       ${results.length - all8Flagged.length} (${((results.length - all8Flagged.length) / results.length * 100).toFixed(1)}%) (no issues at all)`);
+  console.log(`  All 9 clean:       ${results.length - all9Flagged.length} (${((results.length - all9Flagged.length) / results.length * 100).toFixed(1)}%) (no issues at all)`);
   if (parseErrors.length > 0) {
     console.log(`  Parse/API errors:  ${parseErrors.length} (not counted)`);
   }
@@ -436,6 +441,7 @@ async function main() {
   const softCriteria = [
     { key: 'difficulty_appropriate', label: 'Difficulty mismatch' },
     { key: 'variations_valid', label: 'Invalid variations' },
+    { key: 'culturally_appropriate', label: 'Cultural sensitivity' },
   ] as const;
 
   console.log('Gate criteria (all must pass for active):');
@@ -498,6 +504,7 @@ async function main() {
     if (!f.register_appropriate) flags.push('REGISTER');
     if (!f.difficulty_appropriate) flags.push(`DIFFICULTY(${f.suggested_difficulty || '?'})`);
     if (!f.variations_valid) flags.push('VARIATIONS');
+    if (!f.culturally_appropriate) flags.push('CULTURAL');
 
     console.log(`\n  [${f.severity.toUpperCase()}] [${flags.join(', ')}] ${f.id}`);
     console.log(`  ${f.type}${f.writing_type ? '/' + f.writing_type : ''} | ${f.topic} | ${f.generated_by || 'unknown'}`);
@@ -514,7 +521,7 @@ async function main() {
 
   const severityOrder = { critical: 0, minor: 1, suggestion: 2 };
   const gateFailures = gateFlagged.filter(r => !r.notes.startsWith('PARSE_ERROR:') && !r.notes.startsWith('API_ERROR:'));
-  const softOnly = all8Flagged.filter(r => isGatePass(r));
+  const softOnly = all9Flagged.filter(r => isGatePass(r));
 
   if (gateFailures.length > 0) {
     console.log('\n' + '-'.repeat(60));
@@ -600,6 +607,7 @@ async function main() {
         variations_valid: r.variations_valid,
         missing_variations: r.missing_variations,
         invalid_variations: r.invalid_variations,
+        culturally_appropriate: r.culturally_appropriate,
       },
       severity: r.severity,
       notes: r.notes,
