@@ -88,7 +88,7 @@ export function StudyCodeDisplay({
             {studyCode}
           </code>
           <p className="text-sm text-gray-600 dark:text-gray-300 mt-3">
-            Remember or write down this code to access your progress from any device.
+            Remember or write down this code to access your progress from any device
           </p>
           {onSwitchCode && (
             <button
@@ -131,6 +131,9 @@ export function StudyCodeDisplay({
                 includeMargin={true}
               />
             </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400 text-center max-w-[200px]">
+              Scan with your phone to access your learning code
+            </p>
             {showActions && (
               <button
                 onClick={handleDownloadQR}
