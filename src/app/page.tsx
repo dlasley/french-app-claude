@@ -41,7 +41,7 @@ function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedUnit, setSelectedUnit] = useState<string>('all');
-  const [numQuestions, setNumQuestions] = useState<number>(30);
+  const [numQuestions, setNumQuestions] = useState<number>(10);
   const [difficulty, setDifficulty] = useState<'beginner' | 'intermediate' | 'advanced'>('beginner');
   const [quizMode, setQuizMode] = useState<QuizMode>(getDefaultMode());
   const [adaptiveMode, setAdaptiveMode] = useState(FEATURES.LEITNER_MODE);
