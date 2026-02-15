@@ -1,10 +1,10 @@
 /**
- * Quality audit for quiz questions.
- * Uses Sonnet to evaluate generated questions for:
- * - Answer correctness
- * - French grammar correctness
- * - Hallucination (fabricated vocab, rules, or cultural facts)
- * - Question coherence (genuinely nonsensical or unanswerable)
+ * Quality audit for quiz questions using Sonnet.
+ * Uses the Sonnet audit prompt (scripts/prompts/audit-sonnet.md) to evaluate
+ * 4 gate criteria: answer_correct, grammar_correct, no_hallucination, question_coherent.
+ *
+ * Sonnet does NOT apply remediation (no difficulty relabeling, no variation removal).
+ * Use Mistral audit for 9-criteria evaluation with remediation.
  *
  * Usage:
  *   npx tsx scripts/audit-quality.ts                          # Audit all questions
@@ -23,27 +23,22 @@ import { config } from 'dotenv';
 config({ path: '.env.local' });
 
 import Anthropic from '@anthropic-ai/sdk';
-import { createClient } from '@supabase/supabase-js';
-import { writeFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
+import { resolve } from 'path';
+import { createScriptSupabase, PAGE_SIZE } from './lib/db-queries';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Use secret key when --write-db is set (needs write access); anon key for read-only audits
-const useSecretKey = process.argv.includes('--write-db');
-const supabaseKey = useSecretKey
-  ? (process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-  : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const EVALUATOR_MODEL = 'claude-sonnet-4-5-20250929';
 
-if (useSecretKey && !process.env.SUPABASE_SECRET_KEY) {
-  console.warn('⚠️  --write-db requires SUPABASE_SECRET_KEY for write access. Falling back to anon key.');
-}
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseKey,
+// Load the Sonnet-specific evaluation prompt from markdown file
+const AUDIT_PROMPT = readFileSync(
+  resolve(__dirname, 'prompts/audit-sonnet.md'),
+  'utf-8',
 );
 
-const EVALUATOR_MODEL = 'claude-sonnet-4-5-20250929';
+// Supabase client — initialized in main() after parseArgs()
+let supabase!: ReturnType<typeof createScriptSupabase>;
 
 interface CLIOptions {
   unitId?: string;
@@ -52,7 +47,7 @@ interface CLIOptions {
   model?: string;
   limit?: number;
   batchId?: string;
-  markDb?: boolean;
+  writeDb?: boolean;
   pendingOnly?: boolean;
   exportPath?: string;
 }
@@ -68,7 +63,7 @@ function parseArgs(): CLIOptions {
       case '--model': options.model = args[++i]; break;
       case '--limit': options.limit = parseInt(args[++i], 10); break;
       case '--batch': options.batchId = args[++i]; break;
-      case '--write-db': options.markDb = true; break;
+      case '--write-db': options.writeDb = true; break;
       case '--pending-only': options.pendingOnly = true; break;
       case '--export': options.exportPath = args[++i]; break;
     }
@@ -103,59 +98,6 @@ interface AuditResult {
   question_coherent: boolean;
   notes: string;
 }
-
-const AUDIT_PROMPT = `You are a French language expert auditing quiz questions for a French 1 (beginner) course.
-
-IMPORTANT CONTEXT: This quiz app uses a tiered evaluation system for typed answers:
-- Exact match (normalized, accent-insensitive)
-- Fuzzy matching (Levenshtein distance)
-- AI-powered semantic evaluation (Claude Opus) for ambiguous or open-ended responses
-Because of this, fill-in-blank and writing questions that accept multiple valid answers are FINE — the evaluation pipeline handles them. Do NOT flag a question as incoherent just because multiple answers could be correct.
-
-## French Grammar Reference — DO NOT flag these as errors
-
-These are all CORRECT French. Verify carefully before flagging grammar issues:
-
-**Articles & Partitives**
-- Definite articles for general preferences: "J'aime les pommes" (NOT "J'aime des pommes") — French uses le/la/les when expressing likes/dislikes about general categories
-- Partitive after negation becomes "de": "Je ne mange pas de pommes" (NOT "pas des pommes"). "ne...pas de" replaces du/de la/des
-- Mandatory contractions: à+le→au, à+les→aux, de+le→du, de+les→des
-- No article after "en" for countries/continents: "en France" (NOT "en la France")
-
-**Conjugation & Pronouns**
-- "On" ALWAYS takes 3rd person singular: "on aime", "on mange", "on fait" — even when meaning "we"
-- Stressed/disjunctive pronouns after prepositions: "avec moi" (NOT "avec je"), "pour toi", "chez lui"
-- Conjugation-only answers (without subject pronouns) are standard in fill-in-blank exercises: "mangeons" is a valid answer for "nous _____"
-
-**Elision & Liaison**
-- Elision occurs ONLY before vowel sounds and mute h: j'aime, l'école, l'homme, n'aime, d'accord
-- Elision does NOT occur before consonants: "la liberté" is correct (NOT "l'liberté"), "le livre" is correct
-- "Le haricot" is correct (aspirated h, no elision)
-
-**Expressions with avoir/faire**
-- Use "avoir" for physical states: avoir faim, avoir soif, avoir chaud, avoir froid, avoir sommeil (NOT "être faim")
-- Use "faire" + partitive for activities: faire du sport, faire de la natation, faire du vélo
-- Use "boire" for beverages, not "manger": "boire du café" (NOT "manger du café")
-
-**Miscellaneous**
-- "Il y a" means both "there is" and "there are" — it is invariable
-- Aller + infinitive for near future is valid French 1 grammar: "Je vais manger"
-- No capitalization required after "et" in coordinate structures: "les blogs et les films" is correct
-- Days of the week are NOT capitalized in French: "lundi", "mardi" (NOT "Lundi")
-
-## Evaluation Criteria
-
-For each question, evaluate these 4 criteria:
-
-1. **answer_correct**: Is the provided correct answer actually correct? Would a French teacher accept it?
-2. **grammar_correct**: Is the French in both the question AND answer grammatically correct? Check against the grammar reference above before flagging.
-3. **no_hallucination**: Is everything factually accurate? No made-up vocabulary, fabricated grammar rules, incorrect cultural facts, or nonexistent French words?
-4. **question_coherent**: Is the question genuinely nonsensical or unanswerable? Only flag FALSE if a student could not reasonably understand what is being asked, or if the question is self-contradictory. Do NOT flag questions as incoherent for having multiple valid answers — the grading system handles that. For multiple-choice questions, evaluate coherence based on the provided options.
-
-Respond in this exact JSON format (no markdown, no code fences):
-{"answer_correct": true/false, "grammar_correct": true/false, "no_hallucination": true/false, "question_coherent": true/false, "notes": "brief explanation of any issues found, or 'OK' if all pass"}`;
-
-const PAGE_SIZE = 1000;
 
 async function fetchQuestions(options: CLIOptions): Promise<QuestionRow[]> {
   let all: QuestionRow[] = [];
@@ -234,7 +176,6 @@ Correct answer: ${q.correct_answer}`;
   } catch {
     // Parse errors are tool failures, not question quality failures.
     // Mark all criteria as passing to avoid inflating flag counts.
-    // The error is still logged in notes for investigation.
     return {
       id: q.id,
       topic: q.topic,
@@ -255,21 +196,30 @@ Correct answer: ${q.correct_answer}`;
 async function main() {
   const options = parseArgs();
 
+  // Initialize Supabase (write mode if --write-db)
+  supabase = createScriptSupabase({ write: options.writeDb });
+
   const filters = [
     options.unitId && `unit=${options.unitId}`,
     options.difficulty && `difficulty=${options.difficulty}`,
     options.type && `type=${options.type}`,
     options.model && `model=${options.model}`,
     options.limit && `limit=${options.limit}`,
+    options.batchId && `batch=${options.batchId}`,
     options.pendingOnly && 'pending-only',
   ].filter(Boolean);
 
   console.log(`Fetching questions${filters.length ? ` (${filters.join(', ')})` : ''}...`);
   const questions = await fetchQuestions(options);
-  console.log(`Found ${questions.length} questions to audit.\n`);
+  console.log(`Found ${questions.length} questions to audit with Sonnet.\n`);
+
+  if (questions.length === 0) {
+    console.log('No questions found. Exiting.');
+    return;
+  }
 
   const results: AuditResult[] = [];
-  const BATCH = 5; // Sonnet is slower, use smaller batch
+  const BATCH = 5;
 
   for (let i = 0; i < questions.length; i += BATCH) {
     const batch = questions.slice(i, i + BATCH);
@@ -303,9 +253,10 @@ async function main() {
   );
   const parseErrors = results.filter(r => r.notes.startsWith('PARSE_ERROR:'));
 
-  console.log('═'.repeat(60));
-  console.log('QUALITY AUDIT COMPLETE');
-  console.log('═'.repeat(60));
+  console.log('='.repeat(60));
+  console.log('SONNET AUDIT COMPLETE (4-gate)');
+  console.log('='.repeat(60));
+  console.log(`  Model:           ${EVALUATOR_MODEL}`);
   console.log(`  Total evaluated: ${results.length}`);
   console.log(`  All pass:        ${results.length - flagged.length} (${((results.length - flagged.length) / results.length * 100).toFixed(1)}%)`);
   console.log(`  Flagged:         ${flagged.length} (${(flagged.length / results.length * 100).toFixed(1)}%)`);
@@ -328,9 +279,9 @@ async function main() {
 
   // Show flagged questions
   if (flagged.length > 0) {
-    console.log('\n' + '─'.repeat(60));
+    console.log('\n' + '-'.repeat(60));
     console.log('FLAGGED QUESTIONS');
-    console.log('─'.repeat(60));
+    console.log('-'.repeat(60));
 
     for (const f of flagged) {
       const flags = [];
@@ -347,9 +298,9 @@ async function main() {
   }
 
   // By type breakdown
-  console.log('\n' + '─'.repeat(60));
+  console.log('\n' + '-'.repeat(60));
   console.log('PASS RATE BY TYPE');
-  console.log('─'.repeat(60));
+  console.log('-'.repeat(60));
   const types = [...new Set(results.map(r => r.type))];
   for (const t of types) {
     const typeResults = results.filter(r => r.type === t);
@@ -362,9 +313,9 @@ async function main() {
   // By model breakdown
   const models = [...new Set(results.map(r => r.generated_by || 'unknown'))];
   if (models.length > 1 || (models.length === 1 && models[0] !== 'unknown')) {
-    console.log('\n' + '─'.repeat(60));
+    console.log('\n' + '-'.repeat(60));
     console.log('PASS RATE BY MODEL');
-    console.log('─'.repeat(60));
+    console.log('-'.repeat(60));
     for (const m of models) {
       const modelResults = results.filter(r => (r.generated_by || 'unknown') === m);
       const modelPass = modelResults.filter(r =>
@@ -374,9 +325,9 @@ async function main() {
     }
 
     // Per-model failure breakdown
-    console.log('\n' + '─'.repeat(60));
+    console.log('\n' + '-'.repeat(60));
     console.log('FAILURES BY MODEL + CRITERION');
-    console.log('─'.repeat(60));
+    console.log('-'.repeat(60));
     for (const m of models) {
       const mr = results.filter(r => (r.generated_by || 'unknown') === m);
       const ac = mr.filter(r => !r.answer_correct).length;
@@ -392,10 +343,10 @@ async function main() {
   }
 
   // Write quality_status + audit_metadata to database if --write-db is set
-  if (options.markDb) {
-    console.log('\n' + '═'.repeat(60));
+  if (options.writeDb) {
+    console.log('\n' + '='.repeat(60));
     console.log('WRITING QUALITY STATUS + AUDIT METADATA TO DATABASE');
-    console.log('═'.repeat(60));
+    console.log('='.repeat(60));
 
     // Build audit_metadata JSONB for each result (Sonnet: 4 criteria only)
     const buildAuditMetadata = (r: AuditResult) => ({
@@ -439,7 +390,7 @@ async function main() {
       console.log(`  Marked ${flaggedCount} questions as 'flagged' (with audit_metadata)`);
     }
 
-    // Write passing questions: quality_status + audit_metadata (no difficulty relabeling for Sonnet)
+    // Write passing questions: quality_status + audit_metadata (no remediation for Sonnet)
     if (passingResults.length > 0) {
       let activeCount = 0;
       for (const r of passingResults) {

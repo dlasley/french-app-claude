@@ -49,7 +49,7 @@ const INITIAL_BACKOFF_MS = 2000; // Exponential backoff: 2s, 4s, 8s
 
 // Load the evaluation prompt from markdown file
 const SYSTEM_PROMPT = readFileSync(
-  resolve(__dirname, 'mistral-prompt.md'),
+  resolve(__dirname, 'prompts/audit-mistral.md'),
   'utf-8',
 );
 
