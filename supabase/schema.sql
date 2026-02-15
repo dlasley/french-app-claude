@@ -480,7 +480,7 @@ CREATE TABLE experiment_questions (
 
   -- Metadata
   content_hash TEXT,
-  batch_id TEXT,
+  batch_id TEXT REFERENCES experiment_batches(id) ON DELETE CASCADE,
   source_file TEXT,
   generated_by TEXT,
   quality_status TEXT DEFAULT 'pending' CHECK (quality_status IN ('active', 'flagged', 'pending')),
