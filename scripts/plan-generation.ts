@@ -247,7 +247,7 @@ function generatePlan(analysis: DistributionAnalysis): GenerationPlan {
     } else {
       command += ` --count 2`;
     }
-    command += ` --sync-db`;
+    command += ` --write-db`;
 
     steps.push({
       writingType: wt,
@@ -397,7 +397,7 @@ async function main() {
     if (questions.length === 0) {
       console.log('⚠️  No questions found in database!');
       console.log('\nRun the full regeneration pipeline first:');
-      console.log('  npx tsx scripts/regenerate.ts --all --sync-db');
+      console.log('  npx tsx scripts/regenerate.ts --all --write-db --audit');
       return;
     }
 

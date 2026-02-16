@@ -24,7 +24,7 @@ async function checkQuestions() {
     if (questions.length === 0) {
       console.log('⚠️  No questions found in database!');
       console.log('\nTo add questions, run:');
-      console.log('  npx tsx scripts/generate-questions.ts --sync-db');
+      console.log('  npx tsx scripts/generate-questions.ts --write-db');
       return;
     }
 
