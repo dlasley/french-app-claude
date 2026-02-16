@@ -45,8 +45,16 @@ next-env.d.ts
 # session work tracker (local only)
 /PROGRESS.md
 
+# project instructions (local only)
+/CLAUDE.md
+/SETUP.md
+/SUPABASE-SETUP.md
+
 # supabase migrations (schema.sql is canonical)
 /supabase/migrations/
+
+# archived scripts (local only)
+/scripts/archive/
 
 # security audit (private)
 /security-audit/
