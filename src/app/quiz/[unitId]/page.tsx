@@ -1264,14 +1264,6 @@ export default function QuizPage() {
                           })()}
                         </span>
                       </div>
-{/*}
-                      <div>
-                        <span className="font-semibold text-purple-900 dark:text-purple-200">Used Semantic API:</span>
-                        <span className="ml-2 text-purple-800 dark:text-purple-300">
-                          {metadata.usedClaudeAPI ? 'Yes' : 'No'}
-                        </span>
-                      </div>
-*/}
                       {metadata.modelUsed && (
                         <div>
                           <span className="font-semibold text-purple-900 dark:text-purple-200">Model:</span>
