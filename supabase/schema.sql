@@ -1,7 +1,3 @@
--- French Assessment App - Database Schema
--- Anonymous study code system with progress tracking
--- Consolidated from base schema + all migrations
-
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 

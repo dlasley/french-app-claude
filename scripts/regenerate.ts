@@ -75,7 +75,7 @@ interface PipelineOptions {
 
 // Load PDF-to-Markdown conversion prompt from file (single source of truth)
 const CONVERSION_PROMPT = fs.readFileSync(
-  path.join(process.cwd(), 'scripts', 'prompts', 'pdf-to-markdown.txt'),
+  path.join(process.cwd(), 'scripts', 'prompts', 'pdf-to-markdown.md'),
   'utf-8'
 ) + '\n\nNow convert the following PDF text content to clean markdown:\n\n';
 

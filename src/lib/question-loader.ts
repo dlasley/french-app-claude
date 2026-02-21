@@ -153,8 +153,6 @@ export function isMetaQuestion(question: Question): boolean {
     /most important factor.*success/i,
     /effort.*language.*success/i,
     /learning.*language.*success/i,
-    /mr\.\s+/i,  // Questions about specific teacher
-    /mrs\.\s+/i,
     /practice.*key.*success/i,
     /consistency.*key/i,
     /language learning.*emphasized/i

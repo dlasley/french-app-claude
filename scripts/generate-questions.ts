@@ -912,7 +912,7 @@ All generated French must conform to these rules. Violations will cause the ques
 
 ## Forbidden Content — DO NOT create questions about:
 - Learning philosophy (growth mindset, making mistakes, study tips, language acquisition)
-- Teacher information (Monsieur , teacher's background, personal life)
+- Teacher information (Monsieur, teacher's background, personal life)
 - Course administration (grading, homework, classroom rules, technology policies)
 - Class structure, curriculum design, or daily materials needed
 - Whether something was "mentioned in the materials" or "listed in the vocabulary"

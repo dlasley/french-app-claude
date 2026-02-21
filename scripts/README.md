@@ -234,7 +234,7 @@ pedagogical expertise for French courseware development.
 **Interrelationships:**
 - Spawns `suggest-unit-topics.ts` for topic extraction
 - Spawns `generate-questions.ts` for question generation
-- Uses `prompts/pdf-to-markdown.txt` for PDF conversion
+- Uses `prompts/pdf-to-markdown.md` for PDF conversion
 - Reads from `PDF/` and `learnings/` directories
 
 ---
@@ -396,7 +396,7 @@ Pure functions for auto-updating source files during new unit pipeline:
 
 Used by: `regenerate.ts` (Step 2.5: auto-update files for new units)
 
-### prompts/pdf-to-markdown.txt
+### prompts/pdf-to-markdown.md
 
 Prompt template for converting PDF content to well-structured markdown.
 

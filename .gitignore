@@ -64,6 +64,9 @@ next-env.d.ts
 # private docs (internal READMEs, notes)
 /docs/private/
 
+# private local data (audit logs, exports, etc.)
+/private/
+
 # security audit (private)
 /security-audit/
 
