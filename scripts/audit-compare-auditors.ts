@@ -67,6 +67,20 @@ function parseArgs(): CLIOptions {
       case '--sonnet': options.sonnetPath = args[++i]; break;
       case '--mistral': options.mistralPath = args[++i]; break;
       case '--output': options.outputPath = args[++i]; break;
+      case '--help':
+      case '-h':
+        console.log(`
+Cross-Model Audit Comparison
+
+Usage: npx tsx scripts/audit-compare-auditors.ts [options]
+
+Options:
+  --sonnet <path>    Sonnet audit JSON (default: data/audit-sonnet.json)
+  --mistral <path>   Mistral audit JSON (default: data/audit-mistral.json)
+  --output <path>    Output report path (default: docs/cross-validation-report.md)
+  --help, -h         Show this help
+`);
+        process.exit(0);
     }
   }
   return options;

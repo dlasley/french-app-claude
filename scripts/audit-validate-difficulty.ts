@@ -3,23 +3,60 @@
  * Evaluates each question with Haiku using a concrete rubric
  * and relabels where the AI disagrees with the generation label.
  *
- * Output goes to stdout — redirect to a log file for monitoring.
- * Uses SUPABASE_SECRET_KEY for update permissions.
+ * Usage:
+ *   npx tsx scripts/audit-validate-difficulty.ts                  # Validate all, write changes
+ *   npx tsx scripts/audit-validate-difficulty.ts --unit unit-2    # Filter by unit
+ *   npx tsx scripts/audit-validate-difficulty.ts --dry-run        # Show changes without writing
+ *   npx tsx scripts/audit-validate-difficulty.ts --help
  */
 
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
 import Anthropic from '@anthropic-ai/sdk';
-import { createClient } from '@supabase/supabase-js';
 import { MODELS } from './lib/config';
+import { createScriptSupabase } from './lib/db-queries';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SECRET_KEY!,
-);
+interface CLIOptions {
+  unitId?: string;
+  writeDb: boolean;
+  dryRun: boolean;
+}
+
+function parseArgs(): CLIOptions {
+  const args = process.argv.slice(2);
+  const options: CLIOptions = { writeDb: true, dryRun: false };
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case '--unit': options.unitId = args[++i]; break;
+      case '--write-db': options.writeDb = true; break;
+      case '--dry-run': options.dryRun = true; options.writeDb = false; break;
+      case '--help':
+      case '-h':
+        console.log(`
+Difficulty Validation
+
+Usage: npx tsx scripts/audit-validate-difficulty.ts [options]
+
+Options:
+  --unit <unit-id>    Filter by unit
+  --dry-run           Show changes without writing to DB
+  --write-db          Write changes to DB (default)
+  --help, -h          Show this help
+
+Examples:
+  npx tsx scripts/audit-validate-difficulty.ts --unit unit-2
+  npx tsx scripts/audit-validate-difficulty.ts --dry-run
+`);
+        process.exit(0);
+    }
+  }
+  return options;
+}
+
+const supabase = createScriptSupabase({ write: true });
 
 interface QuestionRow {
   id: string;
@@ -54,14 +91,16 @@ Respond with ONLY the difficulty level: beginner, intermediate, or advanced.`;
 
 const PAGE_SIZE = 1000;
 
-async function fetchAllQuestions(): Promise<QuestionRow[]> {
+async function fetchAllQuestions(unitId?: string): Promise<QuestionRow[]> {
   let all: QuestionRow[] = [];
   let page = 0;
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('questions')
-      .select('id, question, correct_answer, type, difficulty, topic, unit_id, options')
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+      .select('id, question, correct_answer, type, difficulty, topic, unit_id, options');
+    if (unitId) query = query.eq('unit_id', unitId);
+    query = query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    const { data, error } = await query;
     if (error) throw new Error(`Fetch error: ${error.message}`);
     if (!data || data.length === 0) break;
     all = all.concat(data as QuestionRow[]);
@@ -92,8 +131,11 @@ async function classifyQuestion(q: QuestionRow): Promise<string> {
 }
 
 async function main() {
-  console.log('Fetching all questions...');
-  const questions = await fetchAllQuestions();
+  const options = parseArgs();
+
+  const filters = [options.unitId && `unit=${options.unitId}`, options.dryRun && 'dry-run'].filter(Boolean);
+  console.log(`Fetching questions${filters.length ? ` (${filters.join(', ')})` : ''}...`);
+  const questions = await fetchAllQuestions(options.unitId);
   console.log(`Found ${questions.length} questions.\n`);
 
   let changed = 0;
@@ -119,15 +161,19 @@ async function main() {
         }
         changes[q.difficulty][newDiff]++;
         if (newDiff !== q.difficulty) {
-          const { error } = await supabase
-            .from('questions')
-            .update({ difficulty: newDiff })
-            .eq('id', q.id);
-          if (error) {
-            console.error(`  ❌ Update error for ${q.id}: ${error.message}`);
-            errors++;
-          } else {
+          if (options.dryRun) {
             changed++;
+          } else {
+            const { error } = await supabase
+              .from('questions')
+              .update({ difficulty: newDiff })
+              .eq('id', q.id);
+            if (error) {
+              console.error(`  ❌ Update error for ${q.id}: ${error.message}`);
+              errors++;
+            } else {
+              changed++;
+            }
           }
         } else {
           unchanged++;

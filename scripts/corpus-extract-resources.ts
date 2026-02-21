@@ -245,6 +245,21 @@ function parseArgs() {
       case '--force':
         options.force = true;
         break;
+      case '--help':
+      case '-h':
+        console.log(`
+Extract Learning Resources
+
+Usage: npx tsx scripts/corpus-extract-resources.ts [options]
+
+Options:
+  --unit <unit-id>    Extract for a specific unit (default: all)
+  --write-db          Insert extracted resources to database
+  --dry-run           Show what would be extracted (default)
+  --force             Re-extract even if resources exist
+  --help, -h          Show this help
+`);
+        process.exit(0);
       default:
         console.error(`Unknown option: ${args[i]}`);
         process.exit(1);

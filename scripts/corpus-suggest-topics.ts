@@ -359,6 +359,25 @@ async function consolidateAllTopics() {
 async function main() {
   const args = process.argv.slice(2);
 
+  if (args[0] === '--help' || args[0] === '-h') {
+    console.log(`
+Topic Extraction & Suggestion
+
+Usage:
+  npx tsx scripts/corpus-suggest-topics.ts <markdown-file> <unit-id>
+  npx tsx scripts/corpus-suggest-topics.ts --consolidate
+
+Options:
+  --consolidate       Run cross-unit topic consolidation
+  --help, -h          Show this help
+
+Examples:
+  npx tsx scripts/corpus-suggest-topics.ts learnings/French\\ 1\\ Unit\\ 4.md unit-4
+  npx tsx scripts/corpus-suggest-topics.ts --consolidate
+`);
+    process.exit(0);
+  }
+
   // Standalone consolidation mode
   if (args[0] === '--consolidate') {
     await consolidateAllTopics();
@@ -368,11 +387,6 @@ async function main() {
   if (args.length < 2) {
     console.error('Usage: npx tsx scripts/corpus-suggest-topics.ts <markdown-file> <unit-id>');
     console.error('       npx tsx scripts/corpus-suggest-topics.ts --consolidate');
-    console.error('');
-    console.error('Examples:');
-    console.error('  npx tsx scripts/corpus-suggest-topics.ts learnings/French\\ 1\\ Unit\\ 4.md unit-4');
-    console.error('  npx tsx scripts/corpus-suggest-topics.ts learnings/test-conversions/unit-2-test.md unit-2');
-    console.error('  npx tsx scripts/corpus-suggest-topics.ts --consolidate');
     process.exit(1);
   }
 

@@ -61,7 +61,7 @@ interface PipelineOptions extends StepOptions {
 function parseArgs(): PipelineOptions {
   const args = process.argv.slice(2);
 
-  if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     printUsage();
     process.exit(0);
   }
@@ -84,8 +84,12 @@ function parseArgs(): PipelineOptions {
   const mdFileIdx = args.indexOf('--markdown-file');
   const mdFileValue = mdFileIdx >= 0 ? args[mdFileIdx + 1] : undefined;
 
+  // Support both positional (first non-flag arg) and --unit flag
+  const unitFlagIdx = args.indexOf('--unit');
+  const unitId = unitFlagIdx >= 0 ? args[unitFlagIdx + 1] : args[0];
+
   const options: PipelineOptions = {
-    unitId: args[0],
+    unitId: unitId,
     reviewTopics: args.includes('--review-topics'),
     skipConvert: args.includes('--skip-convert'),
     forceConvert: args.includes('--force-convert'),

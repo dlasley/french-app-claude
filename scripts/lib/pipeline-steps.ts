@@ -433,7 +433,7 @@ export async function stepAuditQuestions(
 
   const args = ['--write-db', '--pending-only', '--unit', unitId];
   if (options.batchId) {
-    args.push('--batch', options.batchId);
+    args.push('--batch-id', options.batchId);
   }
   // Pass through experiment flags
   if (options.experimentId) {

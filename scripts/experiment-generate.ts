@@ -283,8 +283,8 @@ async function main() {
     console.log(`  [DRY RUN] Would write report to ${reportPath}`);
   } else {
     await runScriptAsync('scripts/experiment-compare.ts', [
-      '--experiment', experimentId,
-      '--export', exportPath,
+      '--experiment-id', experimentId,
+      '--output', exportPath,
       '--report', reportPath,
     ]);
   }

@@ -40,6 +40,22 @@ function parseArgs(): CLIOptions {
       case '--unit': options.unitId = args[++i]; break;
       case '--difficulty': options.difficulty = args[++i]; break;
       case '--type': options.type = args[++i]; break;
+      case '--help':
+      case '-h':
+        console.log(`
+Export Questions to JSON
+
+Usage: npx tsx scripts/db-export-questions.ts [options]
+
+Options:
+  --output <path>       Output file (default: data/corpus-export.json)
+  --columns <mode>      Column set: minimal (default) or full
+  --unit <unit-id>      Filter by unit
+  --difficulty <level>  Filter by difficulty
+  --type <type>         Filter by question type
+  --help, -h            Show this help
+`);
+        process.exit(0);
     }
   }
   return options;

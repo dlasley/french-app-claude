@@ -73,7 +73,7 @@ interface CLIOptions {
   questionType?: 'multiple-choice' | 'fill-in-blank' | 'true-false' | 'writing';
   writingType?: WritingType;
   count: number;
-  syncDb: boolean;
+  writeDb: boolean;
   dryRun: boolean;
   batchId: string;
   sourceFile?: string;
@@ -177,7 +177,7 @@ function parseArgs(): CLIOptions {
   const args = process.argv.slice(2);
   const options: CLIOptions = {
     count: QUESTIONS_PER_TOPIC_PER_DIFFICULTY,
-    syncDb: false,
+    writeDb: false,
     dryRun: false,
     batchId: `batch_${new Date().toISOString().split('T')[0]}_${Date.now()}`,
   };
@@ -219,7 +219,7 @@ function parseArgs(): CLIOptions {
         options.count = countVal;
         break;
       case '--write-db':
-        options.syncDb = true;
+        options.writeDb = true;
         break;
       case '--dry-run':
         options.dryRun = true;
@@ -1070,7 +1070,7 @@ async function generateAllQuestions(options: CLIOptions) {
   console.log(`   Topic:       ${options.topic || 'all'}`);
   console.log(`   Difficulty:  ${options.difficulty || 'all'}`);
   console.log(`   Count:       ${options.count} per topic/difficulty`);
-  console.log(`   Sync to DB:  ${options.syncDb ? 'yes' : 'no'}`);
+  console.log(`   Sync to DB:  ${options.writeDb ? 'yes' : 'no'}`);
   console.log(`   Dry run:     ${options.dryRun ? 'yes' : 'no'}`);
   console.log(`   Batch ID:    ${options.batchId}`);
   if (options.model) {
@@ -1100,7 +1100,7 @@ async function generateAllQuestions(options: CLIOptions) {
   let supabaseClient: SupabaseClient | null = null;
   let existingHashes = new Set<string>();
 
-  if (options.syncDb) {
+  if (options.writeDb) {
     supabaseClient = createScriptSupabase({ write: true });
     console.log('📡 Fetching existing content hashes for deduplication...');
     existingHashes = await fetchExistingHashes(supabaseClient, tableName, options.experimentId);
@@ -1259,7 +1259,7 @@ async function generateAllQuestions(options: CLIOptions) {
             totalGenerated += questionsWithHashes.length;
 
             // Sync to database if enabled
-            if (options.syncDb && supabaseClient) {
+            if (options.writeDb && supabaseClient) {
               const { inserted, skipped } = await syncToDatabase(
                 supabaseClient,
                 questionsWithHashes,
@@ -1323,7 +1323,7 @@ async function generateAllQuestions(options: CLIOptions) {
     }
   }
 
-  if (options.syncDb) {
+  if (options.writeDb) {
     console.log(`   Inserted to DB:       ${totalInserted}`);
     console.log(`   Skipped (duplicates): ${totalSkippedDuplicates}`);
 

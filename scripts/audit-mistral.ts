@@ -14,9 +14,9 @@
  *   npx tsx scripts/audit-mistral.ts --difficulty advanced   # Filter by difficulty
  *   npx tsx scripts/audit-mistral.ts --type writing         # Filter by question type
  *   npx tsx scripts/audit-mistral.ts --limit 50             # Random sample of N
- *   npx tsx scripts/audit-mistral.ts --batch batch_xyz      # Filter by batch_id
+ *   npx tsx scripts/audit-mistral.ts --batch-id batch_xyz    # Filter by batch_id
  *   npx tsx scripts/audit-mistral.ts --pending-only         # Audit only pending questions
- *   npx tsx scripts/audit-mistral.ts --export data/out.json # Export results to JSON
+ *   npx tsx scripts/audit-mistral.ts --output data/out.json # Export results to JSON
  *   npx tsx scripts/audit-mistral.ts --write-db              # Write quality_status + audit_metadata to DB
  */
 
@@ -78,13 +78,40 @@ function parseArgs(): CLIOptions {
       case '--difficulty': options.difficulty = args[++i]; break;
       case '--type': options.type = args[++i]; break;
       case '--limit': options.limit = parseInt(args[++i], 10); break;
-      case '--batch': options.batchId = args[++i]; break;
+      case '--batch-id': options.batchId = args[++i]; break;
       case '--write-db': options.writeDb = true; break;
       case '--pending-only': options.pendingOnly = true; break;
-      case '--export': options.exportPath = args[++i]; break;
+      case '--output': options.exportPath = args[++i]; break;
       case '--experiment-id': options.experimentId = args[++i]; break;
       case '--cohort': options.cohort = args[++i]; break;
       case '--audit-model': options.auditModel = args[++i]; break;
+      case '--help':
+      case '-h':
+        console.log(`
+Mistral Audit & Remediation (Stage 3)
+
+Usage: npx tsx scripts/audit-mistral.ts [options]
+
+Options:
+  --unit <unit-id>         Filter by unit
+  --difficulty <level>     Filter by difficulty
+  --type <question-type>   Filter by question type
+  --limit <n>              Random sample of N questions
+  --batch-id <id>          Filter by batch_id
+  --pending-only           Audit only pending questions
+  --output <path>          Export results to JSON
+  --write-db               Write quality_status + audit_metadata to DB
+  --experiment-id <uuid>   Experiment mode (requires --cohort)
+  --cohort <label>         Cohort label for experiment mode
+  --audit-model <model>    Override Mistral model
+  --help, -h               Show this help
+
+Examples:
+  npx tsx scripts/audit-mistral.ts --unit unit-2 --write-db
+  npx tsx scripts/audit-mistral.ts --pending-only --write-db
+  npx tsx scripts/audit-mistral.ts --output data/audit-results.json
+`);
+        process.exit(0);
     }
   }
 

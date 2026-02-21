@@ -13,10 +13,10 @@
  *   npx tsx scripts/audit-sonnet.ts --type writing           # Filter by question type
  *   npx tsx scripts/audit-sonnet.ts --model claude-haiku-4-5-20251001  # Filter by generator model
  *   npx tsx scripts/audit-sonnet.ts --limit 50               # Random sample of N questions
- *   npx tsx scripts/audit-sonnet.ts --batch batch_xyz        # Filter by batch_id
+ *   npx tsx scripts/audit-sonnet.ts --batch-id batch_xyz      # Filter by batch_id
  *   npx tsx scripts/audit-sonnet.ts --write-db --unit unit-2 # Write quality_status to DB
  *   npx tsx scripts/audit-sonnet.ts --write-db --pending-only # Audit only pending questions
- *   npx tsx scripts/audit-sonnet.ts --export data/audit-sonnet.json  # Export results to JSON
+ *   npx tsx scripts/audit-sonnet.ts --output data/audit-sonnet.json  # Export results to JSON
  */
 
 import { config } from 'dotenv';
@@ -62,10 +62,35 @@ function parseArgs(): CLIOptions {
       case '--type': options.type = args[++i]; break;
       case '--model': options.model = args[++i]; break;
       case '--limit': options.limit = parseInt(args[++i], 10); break;
-      case '--batch': options.batchId = args[++i]; break;
+      case '--batch-id': options.batchId = args[++i]; break;
       case '--write-db': options.writeDb = true; break;
       case '--pending-only': options.pendingOnly = true; break;
-      case '--export': options.exportPath = args[++i]; break;
+      case '--output': options.exportPath = args[++i]; break;
+      case '--help':
+      case '-h':
+        console.log(`
+Sonnet Audit (4-Gate)
+
+Usage: npx tsx scripts/audit-sonnet.ts [options]
+
+Options:
+  --unit <unit-id>         Filter by unit
+  --difficulty <level>     Filter by difficulty
+  --type <question-type>   Filter by question type
+  --model <model-id>       Filter by generator model
+  --limit <n>              Random sample of N questions
+  --batch-id <id>          Filter by batch_id
+  --pending-only           Audit only pending questions
+  --output <path>          Export results to JSON
+  --write-db               Write quality_status + audit_metadata to DB
+  --help, -h               Show this help
+
+Examples:
+  npx tsx scripts/audit-sonnet.ts --unit unit-2 --write-db
+  npx tsx scripts/audit-sonnet.ts --pending-only --write-db
+  npx tsx scripts/audit-sonnet.ts --output data/audit-sonnet.json
+`);
+        process.exit(0);
     }
   }
   return options;

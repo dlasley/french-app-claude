@@ -14,6 +14,18 @@ config({ path: '.env.local' });
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  console.log(`
+Test Database Connection
+
+Usage: npx tsx scripts/db-test-connection.ts
+
+Verifies Supabase connectivity and schema for all core tables.
+No options — just run it.
+`);
+  process.exit(0);
+}
+
 console.log('🧪 Testing Database Connection\n');
 console.log('Configuration:');
 console.log(`  URL: ${supabaseUrl ? '✓ Set' : '✗ Missing'}`);

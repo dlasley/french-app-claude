@@ -6,9 +6,9 @@
  * and writes results back to the experiments table.
  *
  * Usage:
- *   npx tsx scripts/experiment-compare.ts --experiment <uuid>
- *   npx tsx scripts/experiment-compare.ts --experiment <uuid> --export data/out.json
- *   npx tsx scripts/experiment-compare.ts --experiment <uuid> --report docs/report.md
+ *   npx tsx scripts/experiment-compare.ts --experiment-id <uuid>
+ *   npx tsx scripts/experiment-compare.ts --experiment-id <uuid> --output data/out.json
+ *   npx tsx scripts/experiment-compare.ts --experiment-id <uuid> --report docs/report.md
  */
 
 import { config } from 'dotenv';
@@ -88,10 +88,10 @@ function parseArgs(): CLIOptions {
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--experiment':
+      case '--experiment-id':
         options.experimentId = args[++i];
         break;
-      case '--export':
+      case '--output':
         options.exportPath = args[++i];
         break;
       case '--report':
@@ -103,13 +103,13 @@ function parseArgs(): CLIOptions {
 N-Cohort Experiment Comparison
 
 Usage:
-  npx tsx scripts/experiment-compare.ts --experiment <uuid> [options]
+  npx tsx scripts/experiment-compare.ts --experiment-id <uuid> [options]
 
 Required:
-  --experiment <uuid>   Experiment ID to compare
+  --experiment-id <uuid>  Experiment ID to compare
 
 Optional:
-  --export <path>       Export JSON data
+  --output <path>       Export JSON data
   --report <path>       Generate markdown report
   --help, -h            Show this help
 `);
@@ -118,7 +118,7 @@ Optional:
   }
 
   if (!options.experimentId) {
-    console.error('Error: --experiment is required');
+    console.error('Error: --experiment-id is required');
     process.exit(1);
   }
 
