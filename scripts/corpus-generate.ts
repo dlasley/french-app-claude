@@ -124,7 +124,7 @@ Usage:
   npx tsx scripts/corpus-generate.ts --all [options]
 
 Options:
-  --review-topics Interactive topic review (for fluent French speakers only)
+  --review-topics Interactive topic review (for domain experts only)
   --skip-convert  Skip PDF conversion (use existing markdown)
   --force-convert Force PDF reconversion even if markdown exists
   --skip-topics   Skip topic extraction (use existing topics in units.ts)

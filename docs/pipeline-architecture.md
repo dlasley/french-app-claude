@@ -14,7 +14,7 @@ Questions go through three independent stages before reaching students. Each sta
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  STAGE 1: GENERATION                                                │
-│  scripts/generate-questions.ts                                      │
+│  scripts/corpus-generate-questions.ts                                      │
 │                                                                     │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐  │
 │  │ Beginner/Int │    │   Advanced   │    │   --model override   │  │
@@ -31,7 +31,7 @@ Questions go through three independent stages before reaching students. Each sta
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  STAGE 2: VALIDATION                    (in-process, pre-insert)    │
-│  scripts/generate-questions.ts → validateAnswers()                  │
+│  scripts/corpus-generate-questions.ts → validateAnswers()                  │
 │  Model: Sonnet 4.5                                                  │
 │                                                                     │
 │  For each batch of ~5 questions:                                    │
@@ -52,8 +52,8 @@ Questions go through three independent stages before reaching students. Each sta
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  STAGE 3: AUDIT & REMEDIATION           (separate process)          │
-│  Default: audit-quality-mistral.ts      Model: Mistral Large        │
-│  Override: audit-quality.ts (--auditor sonnet)  Model: Sonnet 4.5   │
+│  Default: audit-mistral.ts      Model: Mistral Large        │
+│  Override: audit-sonnet.ts (--auditor sonnet)  Model: Sonnet 4.5   │
 │                                                                     │
 │  Gate criteria (6 — all must pass for 'active'):                    │
 │  ┌─────────────────────────────────────────────────────────────┐   │
@@ -118,14 +118,14 @@ Questions go through three independent stages before reaching students. Each sta
 
 | Stage | Task | Model | Script |
 |-------|------|-------|--------|
-| Pre-pipeline | PDF → Markdown | Sonnet 4 | `regenerate.ts` |
-| Pre-pipeline | Topic extraction | Sonnet 4 | `suggest-unit-topics.ts` |
-| 1 - Generation | MCQ/T-F (beginner/intermediate) | Haiku 4.5 | `generate-questions.ts` |
-| 1 - Generation | Typed answers (beginner/intermediate) | Sonnet 4.5 | `generate-questions.ts` |
-| 1 - Generation | All types (advanced) | Sonnet 4.5 | `generate-questions.ts` |
-| 2 - Validation | Answer + grammar + difficulty check | Sonnet 4.5 | `generate-questions.ts` |
-| 3 - Audit & Remediation | Default auditor | Mistral Large | `audit-quality-mistral.ts` |
-| 3 - Audit & Remediation | Sonnet auditor (override) | Sonnet 4.5 | `audit-quality.ts` |
+| Pre-pipeline | PDF → Markdown | Sonnet 4 | `corpus-generate.ts` |
+| Pre-pipeline | Topic extraction | Sonnet 4 | `corpus-suggest-topics.ts` |
+| 1 - Generation | MCQ/T-F (beginner/intermediate) | Haiku 4.5 | `corpus-generate-questions.ts` |
+| 1 - Generation | Typed answers (beginner/intermediate) | Sonnet 4.5 | `corpus-generate-questions.ts` |
+| 1 - Generation | All types (advanced) | Sonnet 4.5 | `corpus-generate-questions.ts` |
+| 2 - Validation | Answer + grammar + difficulty check | Sonnet 4.5 | `corpus-generate-questions.ts` |
+| 3 - Audit & Remediation | Default auditor | Mistral Large | `audit-mistral.ts` |
+| 3 - Audit & Remediation | Sonnet auditor (override) | Sonnet 4.5 | `audit-sonnet.ts` |
 | Runtime | Answer evaluation | Opus 4.6 | `api/evaluate-writing/route.ts` |
 
 ### Why different models per stage?
@@ -140,39 +140,39 @@ Questions go through three independent stages before reaching students. Each sta
 
 ```bash
 # Stage 1+2: Generate + validate (inserts as 'pending')
-npx tsx scripts/generate-questions.ts --unit unit-3 --write-db
+npx tsx scripts/corpus-generate-questions.ts --unit unit-3 --write-db
 
 # Stage 3: Audit pending questions with Mistral (default, promotes to active/flagged)
-npx tsx scripts/audit-quality-mistral.ts --write-db --pending-only
+npx tsx scripts/audit-mistral.ts --write-db --pending-only
 
 # Stage 3: Audit with Sonnet instead
-npx tsx scripts/audit-quality.ts --write-db --pending-only
+npx tsx scripts/audit-sonnet.ts --write-db --pending-only
 ```
 
 ### Full pipeline
 
 ```bash
 # All stages chained: PDF → Markdown → Topics → Generation → Audit (Mistral default)
-npx tsx scripts/regenerate.ts unit-3 --write-db --audit
+npx tsx scripts/corpus-generate.ts unit-3 --write-db --audit
 
 # Use Sonnet for audit instead
-npx tsx scripts/regenerate.ts unit-3 --write-db --audit --auditor sonnet
+npx tsx scripts/corpus-generate.ts unit-3 --write-db --audit --auditor sonnet
 
 # Dry run (shows what would happen without API calls)
-npx tsx scripts/regenerate.ts unit-3 --write-db --audit --dry-run
+npx tsx scripts/corpus-generate.ts unit-3 --write-db --audit --dry-run
 ```
 
 ### Targeted operations
 
 ```bash
 # Generate only fill-in-blank, advanced difficulty
-npx tsx scripts/generate-questions.ts --unit unit-2 --type fill-in-blank --difficulty advanced --write-db
+npx tsx scripts/corpus-generate-questions.ts --unit unit-2 --type fill-in-blank --difficulty advanced --write-db
 
 # Audit only questions from a specific batch
-npx tsx scripts/audit-quality.ts --write-db --batch batch_2026-02-13_abc
+npx tsx scripts/audit-sonnet.ts --write-db --batch-id batch_2026-02-13_abc
 
 # Generate with Mistral (experimental)
-npx tsx scripts/generate-questions.ts --unit unit-2 --model mistral-large-latest --write-db
+npx tsx scripts/corpus-generate-questions.ts --unit unit-2 --model mistral-large-latest --write-db
 ```
 
 ## Design Principles
@@ -181,7 +181,7 @@ npx tsx scripts/generate-questions.ts --unit unit-2 --model mistral-large-latest
 
 Each stage can be run, re-run, or swapped independently:
 
-- **Re-audit without regenerating**: Update audit prompts and re-run `audit-quality.ts` against existing questions
+- **Re-audit without regenerating**: Update audit prompts and re-run `audit-sonnet.ts` against existing questions
 - **Swap generators**: `--model mistral-large-latest` uses Mistral for Stage 1 while Stages 2-3 remain unchanged
 - **Tune thresholds per stage**: Validation rejects structurally broken questions; audit evaluates content quality — different concerns, different prompts
 
@@ -235,24 +235,38 @@ Fully isolated from production tables.
 
 ```
 scripts/
-├── regenerate.ts                 # Pipeline orchestrator (Steps 1-4)
-├── generate-questions.ts         # Stage 1 (generation) + Stage 2 (validation)
-├── audit-quality-mistral.ts      # Stage 3 (default — Mistral audit & remediation, 6-criteria gate)
-├── audit-quality.ts              # Stage 3 (Sonnet audit, 4-criteria gate, no remediation)
-├── suggest-unit-topics.ts        # Pre-pipeline: topic discovery
-├── plan-generation.ts            # Planning tool: estimate question counts/costs
+├── corpus-generate.ts               # Pipeline orchestrator (Steps 1-5)
+├── corpus-generate-questions.ts     # Stage 1 (generation) + Stage 2 (validation)
+├── corpus-suggest-topics.ts         # Pre-pipeline: topic discovery
+├── corpus-extract-resources.ts      # Extract learning resources from markdown
+├── corpus-plan-generation.ts        # Planning tool: distribution analysis
+├── audit-mistral.ts                 # Stage 3 default (Mistral, 6-criteria gate)
+├── audit-sonnet.ts                  # Stage 3 alt (Sonnet, 4-criteria gate)
+├── audit-validate-difficulty.ts     # Post-generation difficulty validation
+├── audit-compare-auditors.ts        # Cross-model comparison report
+├── experiment-create.ts             # Create experiment record
+├── experiment-generate.ts           # Run A/B experiment pipeline
+├── experiment-compare.ts            # Compare experiment cohorts
+├── db-export-questions.ts           # Export questions to JSON
+├── db-test-connection.ts            # Verify database connectivity
 └── lib/
-    ├── config.ts                 # Model IDs, type classifications, cost estimates
-    ├── writing-type-inference.ts # Writing subtype detection
-    ├── topic-utils.ts            # Topic name normalization
-    └── file-updaters.ts          # units.ts auto-update utilities
+    ├── pipeline-steps.ts            # Shared step functions for orchestrators
+    ├── pdf-conversion.ts            # PDF text extraction + markdown conversion
+    ├── unit-discovery.ts            # File resolution for units
+    ├── script-runner.ts             # Process helpers (spawn, prompt)
+    ├── db-queries.ts                # Supabase client + paginated fetch
+    ├── git-utils.ts                 # Git state capture + safety checks
+    ├── config.ts                    # Model IDs, type classifications
+    ├── writing-type-inference.ts    # Writing subtype detection
+    ├── topic-utils.ts               # Topic name normalization
+    └── file-updaters.ts             # units.ts auto-update utilities
 
 src/lib/
-├── question-loader.ts            # Runtime: loads active questions for quizzes
-├── units.ts                      # Unit definitions with topics + heading mappings
-└── learning-materials.ts         # Loads markdown content for topic extraction
+├── question-loader.ts               # Runtime: loads active questions for quizzes
+├── units.ts                         # Unit definitions with topics + heading mappings
+└── learning-materials.ts            # Loads markdown content for topic extraction
 
-data/markdown/                    # Converted learning materials (Stage 0 output)
+data/markdown/                       # Converted learning materials (Stage 0 output)
 ```
 
 ## Cross-Validation Findings (Sonnet vs Mistral)

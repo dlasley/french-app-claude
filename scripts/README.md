@@ -2,405 +2,311 @@
 
 ## Quick Reference
 
-### By Use Case
+Scripts are organized by prefix:
 
-- **Content Regeneration**
-  - `regenerate.ts` — Full pipeline: PDF → Markdown → Topics → Questions
-  - `generate-questions.ts` — Generate questions for a unit/topic
-  - `suggest-unit-topics.ts` — Extract topics from markdown files
-  - `plan-generation.ts` — Analyze distribution and plan targeted generation
-- **Database**
-  - `check-writing-questions.ts` — Inspect question counts and samples
-  - `test-db-connection.ts` — Verify database connection and schema
+| Prefix | Purpose |
+|--------|---------|
+| `corpus-` | Production content pipeline (PDF → questions) |
+| `audit-` | Quality evaluation and cross-validation |
+| `experiment-` | A/B experiment framework |
+| `db-` | Database utilities |
 
-### By Script Type
-
-- **Pipeline** — Question generation workflow
-  - `regenerate.ts`, `generate-questions.ts`, `suggest-unit-topics.ts`
-- **Utility** — Inspection and debugging
-  - `check-writing-questions.ts`, `test-db-connection.ts`
-- **Shared** — Supporting libraries and templates
-  - `lib/`, `prompts/`
+All scripts support `--help` / `-h`.
 
 ---
 
 ## Pipeline Overview
 
-The content regeneration pipeline converts learning materials into quiz questions:
-
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      regenerate.ts                              │
-│  (orchestrator - runs the full pipeline)                        │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-   PDF files            Markdown files         Topic extraction
-   (PDF/)               (learnings/)
-        │                     │                     │
-        └──────────┬──────────┘                     │
-                   ▼                                │
-          suggest-unit-topics.ts ◄──────────────────┘
-          (extracts teachable topics)
-                   │
-                   ▼
-          generate-questions.ts
-          (creates questions via Claude API)
-                   │
-                   ▼
-             Supabase DB
-             (questions table)
-```
-
-### Running the Full Pipeline
-
-```bash
-# Regenerate all units and sync to database
-npx tsx scripts/regenerate.ts --all --sync-db
-
-# Regenerate a specific unit
-npx tsx scripts/regenerate.ts unit-2 --sync-db
-
-# With interactive topic review (expert users only)
-npx tsx scripts/regenerate.ts --all --review-topics --sync-db
-```
-
----
-
-## Content Extraction: Topics, Aliases, and Sections
-
-When `generate-questions.ts` generates questions for a topic, it needs to find the
-relevant learning material to feed Claude as context. This is a multi-step process
-that maps **topic names** → **heading aliases** → **markdown sections**.
-
-### Data Sources
-
-```
-src/lib/units.ts                    learnings/French 1 Unit 2.md
-┌──────────────────────────┐        ┌──────────────────────────────────────┐
-│ {                        │        │ # French 1 Unit 2                    │
-│   name: '-ER Verb        │        │                                      │
-│          Conjugation',   │        │ ## Qu'est-ce que tu aimes faire?     │
-│   headings: [            │        │ ...sports content...                 │
-│     'conjugaison',       │        │                                      │
-│     'conjugation',       │        │ ## Present tense of -ER verbs        │
-│     '-er verbs',         │        │ ...conjugation rules...              │
-│     'present tense       │        │ ### Common ER Verbs                  │
-│        of -er',          │        │ ...verb list...                      │
-│     'conjugate the       │        │ ### How to Conjugate -ER Verbs       │
-│        verbs'            │        │ ...conjugation table...              │
-│   ]                      │        │                                      │
-│ }                        │        │ ## Les jours de la semaine           │
-└──────────────────────────┘        │ ...days content...                   │
-                                    └──────────────────────────────────────┘
-```
-
-### Extraction Flow
-
-```
-extractTopicContent(markdown, "-ER Verb Conjugation")
-│
-├─ Phase 1: Direct match
-│  Scan all headings for one containing "-ER Verb Conjugation" literally.
-│  No match found → fall through to Phase 2.
-│
-├─ Phase 2: Alias match
-│  Look up headings array from units.ts:
-│    ['conjugaison', 'conjugation', '-er verbs', 'present tense of -er', ...]
-│
-│  Scan every heading in the markdown file:
-│
-│    "## Present tense of -ER verbs"
-│     └─ matches alias "present tense of -er" ──► extract section 1
-│
-│    "### Common ER Verbs"
-│     └─ matches alias "-er verbs" ──────────────► extract section 2
-│
-│    "### How to Conjugate -ER Verbs"
-│     └─ matches alias "conjugate the verbs" ───► extract section 3
-│
-│  Log: Found topic "-ER Verb Conjugation" via alias match (3 sections)
-│
-└─ Result: 3 sections joined with "---" separators
-   Passed to Claude as learning context for question generation.
-```
-
-### Section Boundaries
-
-Each matched section includes everything from the heading down to the next heading
-at the **same or higher level**. Subsections are included:
-
-```
-## Present tense of -ER verbs    ◄── match starts here (level 2)
-   paragraph content...               │
-### Common ER Verbs              ◄── included (level 3, deeper)
-   verb list...                        │
-### How to Conjugate             ◄── this is a SEPARATE match
-## Les jours de la semaine       ◄── would stop section (level 2, same level)
-```
-
-Sections shorter than 10 lines are discarded (likely just a heading with no content).
-
-### Fallback Chain
-
-| Step | Condition | Result |
-|------|-----------|--------|
-| Direct match | Heading contains topic name literally | Use that section |
-| Alias match | Any `headings[]` alias found in markdown headings | Join all matched sections |
-| No match | Neither works | Warning logged; Claude generates from general knowledge |
-
-### Alias Matching Rules
-
-- **Case-insensitive**: `"conjugation"` matches `"Conjugation"` and `"CONJUGATION"`
-- **Word-boundary aware**: `"present"` won't match `"presentation"`; uses Unicode-aware lookbehind/lookahead
-- **H1 skipped**: Document-level `# Title` headings are never matched (only `##` and deeper)
-- **Deduplication**: Each heading index is matched at most once, even if multiple aliases hit it
-
----
-
-## Quality Pipeline
-
-After generation, two scripts evaluate and adjust question quality:
-
-```
-generate-questions.ts ──► Supabase
-                              │
-              ┌───────────────┼───────────────┐
-              ▼                               ▼
-    validate-difficulty.ts            audit-quality.ts
-    (reclassify difficulty            (Sonnet evaluates
-     using Haiku rubric)               correctness, grammar,
-              │                        hallucination, coherence)
-              ▼                               │
-    UPDATE questions SET                      ▼
-    difficulty = ...                  Console report with
-                                     pass rates by type/model
-```
-
-### validate-difficulty.ts
-
-Reclassifies every question's difficulty using a rubric-based AI pass.
-
-```bash
-npx tsx scripts/validate-difficulty.ts > /tmp/french-validation.log 2>&1
-```
-
-### audit-quality.ts
-
-Evaluates questions for correctness, grammar, hallucination, and coherence.
-Supports filtering by unit, difficulty, type, model, and random sampling.
-
-```bash
-# Audit all questions
-npx tsx scripts/audit-quality.ts
-
-# Compare Haiku vs Sonnet questions for unit-2
-npx tsx scripts/audit-quality.ts --unit unit-2
-
-# Audit only Sonnet-generated questions
-npx tsx scripts/audit-quality.ts --model claude-sonnet-4-5-20250929
-
-# Random sample of 50
-npx tsx scripts/audit-quality.ts --limit 50
+│                      corpus-generate.ts                          │
+│  (orchestrator — runs the full pipeline for a unit)              │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+       ┌───────────────────────┼───────────────────────┐
+       ▼                       ▼                       ▼
+  PDF files             Markdown files          Topic extraction
+  (PDF/)                (learnings/)
+       │                       │                       │
+       └──────────┬────────────┘                       │
+                  ▼                                    │
+        corpus-suggest-topics.ts ◄─────────────────────┘
+        (extracts teachable topics)
+                  │
+                  ▼
+        corpus-generate-questions.ts
+        (creates questions via AI — Stage 1+2)
+                  │
+                  ▼
+        audit-mistral.ts / audit-sonnet.ts
+        (quality gate — Stage 3)
+                  │
+                  ▼
+            Supabase DB
+            (questions table)
 ```
 
 ---
 
 ## Script Reference
 
-### regenerate.ts (Pipeline)
+### corpus-generate.ts
 
-**Purpose:** Orchestrates the full content regeneration pipeline.
+Full pipeline orchestrator: PDF → Markdown → Topics → Questions → Audit.
 
-**Usage:**
 ```bash
-npx tsx scripts/regenerate.ts <unit-id> [options]
-npx tsx scripts/regenerate.ts --all [options]
+npx tsx scripts/corpus-generate.ts <unit-id> [options]
+npx tsx scripts/corpus-generate.ts --unit <unit-id> [options]
+npx tsx scripts/corpus-generate.ts --all [options]
 
 Options:
-  --sync-db          Sync generated questions to Supabase
-  --skip-convert     Skip PDF conversion (use existing markdown)
-  --skip-topics      Skip topic extraction (use existing topics)
-  --review-topics    Interactive topic review (see note below)
-  --dry-run          Show what would be done without executing
+  --unit <unit-id>          Unit to process (alternative to positional arg)
+  --write-db                Sync generated questions to database
+  --audit                   Run quality audit after generation (requires --write-db)
+  --auditor <m>             Audit model: 'mistral' (default) or 'sonnet'
+  --skip-convert            Skip PDF conversion (use existing markdown)
+  --force-convert           Force PDF reconversion even if markdown exists
+  --skip-topics             Skip topic extraction (use existing topics)
+  --skip-resources          Skip learning resource extraction
+  --review-topics           Interactive topic review (for domain experts)
+  --convert-only            Stop after PDF conversion
+  --batch-id <id>           Custom batch ID
+  --markdown-file <path>    Use specified markdown file
+  --dry-run                 Show what would be done without executing
 ```
 
-**Note on `--review-topics`:** By default, the pipeline uses AI-extracted topics
-automatically. The `--review-topics` flag enables interactive prompts to manually
-review and override topic names. Use only if you are fluent in French and have
-pedagogical expertise for French courseware development.
+### corpus-generate-questions.ts
 
-**Interrelationships:**
-- Spawns `suggest-unit-topics.ts` for topic extraction
-- Spawns `generate-questions.ts` for question generation
-- Uses `prompts/pdf-to-markdown.md` for PDF conversion
-- Reads from `PDF/` and `learnings/` directories
+Stage 1 (generation) + Stage 2 (validation). Hybrid model: Haiku for MCQ/T-F, Sonnet for typed answers.
 
----
-
-### generate-questions.ts (Pipeline)
-
-**Purpose:** Generates quiz questions for a unit/topic using Claude API.
-
-**Usage:**
 ```bash
-npx tsx scripts/generate-questions.ts [options]
+npx tsx scripts/corpus-generate-questions.ts [options]
 
 Options:
-  --unit <id>        Unit ID (required)
-  --topic <name>     Specific topic (optional, defaults to all)
-  --difficulty <d>   beginner, intermediate, or advanced
-  --type <t>         multiple-choice, true-false, fill-in-blank, or writing
-  --writing-type <w> Writing subtype: translation, conjugation, question_formation,
-                     sentence_building, or open_ended (requires --type writing)
-  --count <n>        Number of questions per topic/difficulty
-  --sync-db          Upload to Supabase after generation
+  --unit <unit-id>          Generate for specific unit
+  --topic <name>            Generate for specific topic
+  --difficulty <level>      beginner | intermediate | advanced
+  --type <type>             multiple-choice | fill-in-blank | true-false | writing
+  --writing-type <wtype>    Writing subtype (requires --type writing)
+  --count <n>               Questions per topic/difficulty (default: 10)
+  --write-db                Sync to database
+  --batch-id <id>           Custom batch ID
+  --model <model-id>        Override model for all types
+  --skip-validation         Skip answer validation pass
+  --dry-run                 Show what would be generated
 ```
 
-**Interrelationships:**
-- Called by `regenerate.ts`
-- Uses `src/lib/learning-materials.ts` for content extraction
-- Uses `src/lib/units.ts` for topic-to-heading mapping
+### corpus-suggest-topics.ts
 
----
+Extract teachable topics from markdown learning materials.
 
-### plan-generation.ts (Pipeline)
-
-**Purpose:** Analyzes current question distribution and creates an execution plan to reach target distribution.
-
-**Usage:**
 ```bash
-npx tsx scripts/plan-generation.ts [options]
+npx tsx scripts/corpus-suggest-topics.ts <markdown-file> <unit-id>
+npx tsx scripts/corpus-suggest-topics.ts --consolidate
+```
+
+### corpus-extract-resources.ts
+
+Extract learning resources (YouTube URLs, etc.) from markdown files.
+
+```bash
+npx tsx scripts/corpus-extract-resources.ts [options]
 
 Options:
-  --execute           Execute the generation plan (prompts for confirmation)
-  --analyze-only      Only show distribution analysis, don't generate a plan
-  --target-writing <n> Target percentage for writing questions (default: 27)
-  --help, -h          Show this help message
+  --unit <unit-id>    Extract for specific unit (default: all)
+  --write-db          Insert to database
+  --dry-run           Show what would be extracted (default)
+  --force             Re-extract even if resources exist
 ```
 
-**Features:**
-- Analyzes current distribution vs target percentages
-- Generates an efficient plan using topic compatibility knowledge
-- Estimates API calls and cost before execution
-- Outputs copy-paste commands for manual control
-- Optional `--execute` flag runs commands with confirmation prompts
+### corpus-plan-generation.ts
 
-**Interrelationships:**
-- Calls `generate-questions.ts` for execution
-- Queries Supabase for current question counts
-- Uses built-in topic compatibility mapping to reduce drift waste
+Analyze current question distribution and plan targeted generation.
 
----
-
-### suggest-unit-topics.ts (Pipeline)
-
-**Purpose:** Extracts teachable topics from markdown learning materials using Claude API.
-
-**Usage:**
 ```bash
-npx tsx scripts/suggest-unit-topics.ts <markdown-file> <unit-id>
+npx tsx scripts/corpus-plan-generation.ts [options]
 
-Example:
-npx tsx scripts/suggest-unit-topics.ts "learnings/French 1 Unit 2.md" unit-2
+Options:
+  --execute           Execute the generation plan
+  --analyze-only      Only show distribution analysis
+  --target-writing <n> Target writing percentage (default: 27)
 ```
-
-**Interrelationships:**
-- Called by `regenerate.ts`
-- Uses `lib/topic-utils.ts` for topic processing
-- Outputs suggested updates for `src/lib/units.ts`
 
 ---
 
-### check-writing-questions.ts (Utility)
+### audit-mistral.ts
 
-**Purpose:** Inspect question counts, distribution, and sample content in the database.
+Stage 3 default auditor. 6-criteria gate + remediation (difficulty relabeling, variation removal).
 
-**Usage:**
 ```bash
-# Show statistics only
-npx tsx scripts/check-writing-questions.ts
+npx tsx scripts/audit-mistral.ts [options]
 
-# Include sample question text
-npx tsx scripts/check-writing-questions.ts --samples
+Options:
+  --unit <unit-id>         Filter by unit
+  --difficulty <level>     Filter by difficulty
+  --type <type>            Filter by question type
+  --batch-id <id>          Filter by batch_id
+  --limit <n>              Random sample of N
+  --pending-only           Audit only pending questions
+  --output <path>          Export results to JSON
+  --write-db               Write quality_status + audit_metadata to DB
 ```
 
-**Output includes:**
-- Counts by unit and type
-- Counts by difficulty
-- Writing question subtypes
-- Top 10 topics
-- Sample questions (with `--samples`)
+### audit-sonnet.ts
 
----
+4-criteria gate, no remediation. Use for comparison runs.
 
-### test-db-connection.ts (Utility)
-
-**Purpose:** Verify database connection and test all core tables (study_codes, quiz_history, question_results, concept_mastery view, questions).
-
-**Usage:**
 ```bash
-npx tsx scripts/test-db-connection.ts
+npx tsx scripts/audit-sonnet.ts [options]
+# Same filter options as audit-mistral.ts
 ```
 
-**Tests performed:**
-- Connection to Supabase
-- CRUD operations on progress tracking tables
-- Questions table accessibility
-- Automatic cleanup of test data
+### audit-validate-difficulty.ts
+
+Post-generation difficulty validation using Haiku rubric.
+
+```bash
+npx tsx scripts/audit-validate-difficulty.ts [options]
+
+Options:
+  --unit <unit-id>    Filter by unit
+  --dry-run           Show changes without writing
+  --write-db          Write changes (default)
+```
+
+### audit-compare-auditors.ts
+
+Cross-model comparison: reads Sonnet + Mistral JSON exports, generates markdown report.
+
+```bash
+npx tsx scripts/audit-compare-auditors.ts [options]
+
+Options:
+  --sonnet <path>    Sonnet audit JSON (default: data/audit-sonnet.json)
+  --mistral <path>   Mistral audit JSON (default: data/audit-mistral.json)
+  --output <path>    Report output (default: docs/cross-validation-report.md)
+```
 
 ---
 
-## Shared Resources
+### experiment-create.ts
 
-### lib/topic-utils.ts
+Create an experiment record in the database.
 
-Shared utilities for topic processing:
-- `getAllTopics()` - Collects all topic names across units
-- `normalizeTopic()` - Normalizes topic names for comparison
-- `findSimilarTopics()` - AI-powered fuzzy topic matching
+```bash
+npx tsx scripts/experiment-create.ts [options]
+```
 
-Used by: `suggest-unit-topics.ts`
+### experiment-generate.ts
 
-### lib/writing-type-inference.ts
+Run an A/B experiment: reconvert PDF, generate + audit cohorts, compare.
 
-Pattern-based inference of writing question subtypes from question text:
-- `inferWritingType(text)` - Returns writing subtype based on keyword patterns
+```bash
+npx tsx scripts/experiment-generate.ts --unit <unit-id> [options]
 
-Writing types: `translation`, `conjugation`, `question_formation`, `sentence_building`, `open_ended`
+Options:
+  --unit <unit-id>           Unit to experiment on (required)
+  --name <name>              Experiment name
+  --research-question <q>    Research question
+  --hypothesis <h>           Hypothesis
+  --variable <v>             Independent variable
+  --metric <m>               Primary metric
+  --auditor <m>              Audit model: 'mistral' (default) or 'sonnet'
+  --dry-run                  Show steps without executing
+```
 
-Used by: `generate-questions.ts`
+### experiment-compare.ts
+
+Compare cohorts within an experiment, generate report.
+
+```bash
+npx tsx scripts/experiment-compare.ts --experiment-id <uuid> [options]
+
+Options:
+  --experiment-id <uuid>  Experiment ID (required)
+  --output <path>         Export JSON data
+  --report <path>         Generate markdown report
+```
+
+---
+
+### db-export-questions.ts
+
+Export questions table to JSON.
+
+```bash
+npx tsx scripts/db-export-questions.ts [options]
+
+Options:
+  --output <path>       Output file (default: data/corpus-export.json)
+  --columns <mode>      minimal (default) or full
+  --unit <unit-id>      Filter by unit
+  --difficulty <level>  Filter by difficulty
+  --type <type>         Filter by question type
+```
+
+### db-test-connection.ts
+
+Verify Supabase connectivity and schema.
+
+```bash
+npx tsx scripts/db-test-connection.ts
+```
+
+---
+
+## Shared Libraries
+
+### lib/pipeline-steps.ts
+
+Step functions for the pipeline orchestrators. Used by `corpus-generate.ts` and `experiment-generate.ts`.
+
+- `stepConvertPdf()` — PDF → Markdown conversion
+- `stepExtractTopics()` — Topic discovery
+- `stepAutoUpdateFiles()` — Auto-update units.ts for new units
+- `stepGenerateQuestions()` — Spawn question generation
+- `stepAuditQuestions()` — Spawn quality audit
+- `stepExtractResources()` — Spawn resource extraction
+
+### lib/pdf-conversion.ts
+
+PDF text extraction and Claude-based markdown conversion.
+
+### lib/unit-discovery.ts
+
+File resolution: find PDFs and markdown for a given unit ID.
+
+### lib/script-runner.ts
+
+Shared process helpers: `runScript()`, `runScriptAsync()`, `promptUser()`.
 
 ### lib/db-queries.ts
 
-Shared database query utilities:
-- `createScriptSupabase()` - Initialize Supabase client from env vars
-- `fetchAllQuestions(supabase, selectFields?)` - Paginated fetch (bypasses 1000-row default limit)
-- `analyzeDistribution(questions)` - Count by type and writing subtype
+Supabase client init, paginated fetch, distribution analysis.
 
-Used by: `plan-generation.ts`, `check-writing-questions.ts`
+### lib/git-utils.ts
+
+Git state capture and safety checks for experiment mode.
 
 ### lib/config.ts
 
-Centralized configuration for pipeline scripts:
-- `MODELS` - Model IDs for PDF conversion, topic extraction, similarity, and question generation
-- `COST_PER_API_CALL` - Estimated cost per Haiku 4.5 API call
+Model IDs, type classifications, cost estimates.
 
-Used by: `regenerate.ts`, `suggest-unit-topics.ts`, `generate-questions.ts`, `lib/topic-utils.ts`, `plan-generation.ts`
+### lib/topic-utils.ts
+
+Topic name normalization, similarity detection, deduplication.
+
+### lib/writing-type-inference.ts
+
+Pattern-based writing subtype inference from question text.
 
 ### lib/file-updaters.ts
 
-Pure functions for auto-updating source files during new unit pipeline:
-- `insertUnitEntry(source, unitData)` - Insert a new unit entry into `units.ts`
+Auto-update `units.ts` with new unit entries.
 
-Used by: `regenerate.ts` (Step 2.5: auto-update files for new units)
+### prompts/
 
-### prompts/pdf-to-markdown.md
-
-Prompt template for converting PDF content to well-structured markdown.
-
-Used by: `regenerate.ts` (PDF conversion step)
+Prompt templates for PDF conversion, audit criteria, and topic extraction.
 
 ---
 
@@ -409,61 +315,40 @@ Used by: `regenerate.ts` (PDF conversion step)
 All scripts require `.env.local` with:
 
 ```env
-# Supabase (required for DB operations)
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+ANTHROPIC_API_KEY=...
 
-# Anthropic (required for AI operations)
-ANTHROPIC_API_KEY=your_anthropic_api_key
+# For write operations (bypasses RLS):
+SUPABASE_SECRET_KEY=...
+
+# For Mistral audit:
+MISTRAL_API_KEY=...
 ```
 
 ---
 
 ## Common Workflows
 
-### Verify Database Connection
 ```bash
-npx tsx scripts/test-db-connection.ts
-```
+# Test database connection
+npx tsx scripts/db-test-connection.ts
 
-### Full Content Regeneration
-```bash
-npx tsx scripts/regenerate.ts --all --sync-db
-```
+# Full pipeline for one unit
+npx tsx scripts/corpus-generate.ts unit-4 --write-db --audit
 
-### Verify Database Content
-```bash
-npx tsx scripts/check-writing-questions.ts --samples
-```
+# Generate questions only (no PDF conversion)
+npx tsx scripts/corpus-generate-questions.ts --unit unit-2 --write-db
 
-### Generate Questions for One Topic
-```bash
-npx tsx scripts/generate-questions.ts --unit unit-2 --topic "Numbers 20-100" --sync-db
-```
+# Audit pending questions with Mistral
+npx tsx scripts/audit-mistral.ts --pending-only --write-db
 
-### Generate Targeted Writing Questions
-```bash
-# Generate conjugation questions for verb-related topics
-npx tsx scripts/generate-questions.ts --type writing --writing-type conjugation --count 3 --sync-db
+# Export questions for inspection
+npx tsx scripts/db-export-questions.ts --output /tmp/questions.json
 
-# Generate question_formation for specific compatible topic
-npx tsx scripts/generate-questions.ts --type writing --writing-type question_formation \
-  --unit unit-3 --topic "Questions with est-ce que" --count 3 --sync-db
-```
+# Analyze distribution and plan generation
+npx tsx scripts/corpus-plan-generation.ts --analyze-only
 
-**Note:** Some topic/writing-type combinations have high "drift" (AI generates different
-types because the topic doesn't support the requested type). For best results, target
-writing types to compatible topics (e.g., conjugation → verb topics, question_formation
-→ "Questions with est-ce que").
-
-### Plan and Balance Distribution
-```bash
-# Analyze current distribution and see proposed plan
-npx tsx scripts/plan-generation.ts
-
-# Execute the plan (with confirmation prompt)
-npx tsx scripts/plan-generation.ts --execute
-
-# Just show analysis, no plan
-npx tsx scripts/plan-generation.ts --analyze-only
+# Dry run to preview
+npx tsx scripts/corpus-generate.ts unit-4 --write-db --audit --dry-run
 ```
