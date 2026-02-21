@@ -161,19 +161,6 @@ npx tsx scripts/audit-sonnet.ts [options]
 # Same filter options as audit-mistral.ts
 ```
 
-### audit-validate-difficulty.ts
-
-Post-generation difficulty validation using Haiku rubric.
-
-```bash
-npx tsx scripts/audit-validate-difficulty.ts [options]
-
-Options:
-  --unit <unit-id>    Filter by unit
-  --dry-run           Show changes without writing
-  --write-db          Write changes (default)
-```
-
 ### audit-compare-auditors.ts
 
 Cross-model comparison: reads Sonnet + Mistral JSON exports, generates markdown report.

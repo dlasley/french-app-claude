@@ -245,7 +245,7 @@ function buildPipelineConfig(): Record<string, unknown> {
     generation_structured: MODELS.questionGenerationStructured,
     generation_typed: MODELS.questionGenerationTyped,
     validation: MODELS.answerValidation,
-    audit: MODELS.audit,
+    audit: MODELS.mistralAudit,
     pdf_conversion: MODELS.pdfConversion,
     topic_extraction: MODELS.topicExtraction,
   };

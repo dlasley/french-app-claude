@@ -13,7 +13,7 @@ export const MODELS = {
   /** Post-generation answer validation + acceptable variation generation */
   answerValidation: 'claude-sonnet-4-5-20250929',
   /** Default Stage 3 auditor (Mistral Large — independent cross-provider audit) */
-  audit: 'mistral-large-latest',
+  mistralAudit: 'mistral-large-latest',
   /** Sonnet audit (available via --auditor sonnet) */
   sonnetAudit: 'claude-sonnet-4-5-20250929',
 };

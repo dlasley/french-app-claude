@@ -28,6 +28,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { checkGitState } from './lib/git-utils';
 import { createScriptSupabase, PAGE_SIZE } from './lib/db-queries';
+import { MODELS } from './lib/config';
 
 // Validate Mistral API key
 if (!process.env.MISTRAL_API_KEY) {
@@ -41,7 +42,6 @@ const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
 // Supabase client — initialized in main() after parseArgs()
 let supabase!: ReturnType<typeof createScriptSupabase>;
 
-const MISTRAL_MODEL = 'mistral-large-latest';
 const BATCH_SIZE = 5;
 const RATE_LIMIT_DELAY_MS = 1000; // Base delay between batches (Scale tier: 6 req/s, 2M tokens/min)
 const MAX_RETRIES = 3;
@@ -229,7 +229,7 @@ async function auditBatch(questions: QuestionRow[]): Promise<MistralAuditResult[
   const userPrompt = `Evaluate the following ${questions.length} question(s). Return a JSON array with one result object per question, in the same order.\n\n${questionsText}`;
 
   const response = await mistral.chat.complete({
-    model: MISTRAL_MODEL,
+    model: MODELS.mistralAudit,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
@@ -438,7 +438,7 @@ async function main() {
   console.log('='.repeat(60));
   console.log('MISTRAL AUDIT & REMEDIATION COMPLETE');
   console.log('='.repeat(60));
-  console.log(`  Model:             ${MISTRAL_MODEL}`);
+  console.log(`  Model:             ${MODELS.mistralAudit}`);
   console.log(`  Total attempted:   ${results.length}`);
   if (parseErrors.length > 0) {
     console.log(`  Parse/API errors:  ${parseErrors.length} (skipped — status unchanged)`);
@@ -613,7 +613,7 @@ async function main() {
     // Build audit_metadata JSONB for each result
     const buildAuditMetadata = (r: MistralAuditResult) => ({
       auditor: 'mistral',
-      model: MISTRAL_MODEL,
+      model: MODELS.mistralAudit,
       audited_at: new Date().toISOString(),
       gate_criteria: {
         answer_correct: r.answer_correct,

@@ -26,10 +26,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { createScriptSupabase, PAGE_SIZE } from './lib/db-queries';
+import { MODELS } from './lib/config';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-const EVALUATOR_MODEL = 'claude-sonnet-4-5-20250929';
 
 // Load the Sonnet-specific evaluation prompt from markdown file
 const AUDIT_PROMPT = readFileSync(
@@ -173,7 +172,7 @@ Question: ${q.question}${optionsLine}
 Correct answer: ${q.correct_answer}`;
 
   const response = await anthropic.messages.create({
-    model: EVALUATOR_MODEL,
+    model: MODELS.sonnetAudit,
     max_tokens: 500,
     messages: [{ role: 'user', content: prompt }],
   });
@@ -281,7 +280,7 @@ async function main() {
   console.log('='.repeat(60));
   console.log('SONNET AUDIT COMPLETE (4-gate)');
   console.log('='.repeat(60));
-  console.log(`  Model:           ${EVALUATOR_MODEL}`);
+  console.log(`  Model:           ${MODELS.sonnetAudit}`);
   console.log(`  Total evaluated: ${results.length}`);
   console.log(`  All pass:        ${results.length - flagged.length} (${((results.length - flagged.length) / results.length * 100).toFixed(1)}%)`);
   console.log(`  Flagged:         ${flagged.length} (${(flagged.length / results.length * 100).toFixed(1)}%)`);
@@ -376,7 +375,7 @@ async function main() {
     // Build audit_metadata JSONB for each result (Sonnet: 4 criteria only)
     const buildAuditMetadata = (r: AuditResult) => ({
       auditor: 'sonnet',
-      model: EVALUATOR_MODEL,
+      model: MODELS.sonnetAudit,
       audited_at: new Date().toISOString(),
       gate_criteria: {
         answer_correct: r.answer_correct,

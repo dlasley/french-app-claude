@@ -242,7 +242,6 @@ scripts/
 ├── corpus-plan-generation.ts        # Planning tool: distribution analysis
 ├── audit-mistral.ts                 # Stage 3 default (Mistral, 6-criteria gate)
 ├── audit-sonnet.ts                  # Stage 3 alt (Sonnet, 4-criteria gate)
-├── audit-validate-difficulty.ts     # Post-generation difficulty validation
 ├── audit-compare-auditors.ts        # Cross-model comparison report
 ├── experiment-create.ts             # Create experiment record
 ├── experiment-generate.ts           # Run A/B experiment pipeline

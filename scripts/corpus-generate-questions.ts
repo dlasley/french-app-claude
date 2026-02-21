@@ -1128,7 +1128,7 @@ async function generateAllQuestions(options: CLIOptions) {
           generation_structured: structuredModel,
           generation_typed: typedModel,
           validation: validationModel,
-          audit: MODELS.audit,
+          audit: MODELS.mistralAudit,
           pdf_conversion: MODELS.pdfConversion,
           topic_extraction: MODELS.topicExtraction,
         },
