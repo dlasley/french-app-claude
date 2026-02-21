@@ -287,6 +287,8 @@ Full-corpus cross-validation (1,039 questions, Feb 2026) informed the decision t
 - **Not overly strict**: Mistral's core-4 pass rates are higher than Sonnet's for 3 of 4 question types.
 - **Additional criteria**: `natural_french` and `register_appropriate` checks catch quality issues Sonnet doesn't evaluate.
 
+> **Reading the numbers**: The per-criterion table above counts individual criterion disagreements (162 Sonnet-only + 104 Mistral-only). The 476/34 numbers are **question-level** — unique questions where one auditor flagged on *any* criterion while the other passed all. They differ because: (1) Mistral evaluates 6 criteria vs Sonnet's 4, so `natural_french`/`register_appropriate` failures are automatic Sonnet blind spots not reflected in the core-4 table; (2) multiple criterion failures on one question deduplicate at question level; (3) the 34 Sonnet-only count requires Mistral to pass all 6 gate criteria.
+
 ### Tiered Gate Design
 
 The 6-criteria gate (core 4 + `natural_french` + `register_appropriate`) was chosen based on fail rate analysis:
