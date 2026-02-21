@@ -16,8 +16,9 @@
 
 import { spawn } from 'child_process';
 import readline from 'readline';
-import { units } from '../src/lib/units';
 import { createScriptSupabase, fetchAllQuestions, analyzeDistribution, type DistributionAnalysis } from './lib/db-queries';
+import { fetchUnitsFromDb } from '../src/lib/units-db';
+import type { Unit } from '../src/types';
 import { COST_PER_API_CALL } from './lib/config';
 
 const supabase = createScriptSupabase();
@@ -201,7 +202,7 @@ function printAnalysis(analysis: DistributionAnalysis): void {
 // Plan Generation
 // ============================================================================
 
-function generatePlan(analysis: DistributionAnalysis): GenerationPlan {
+function generatePlan(analysis: DistributionAnalysis, units: Unit[]): GenerationPlan {
   const steps: GenerationStep[] = [];
 
   // Calculate how many writing questions of each type we need
@@ -391,6 +392,8 @@ async function main() {
 
   console.log('🔍 Fetching current question distribution...\n');
 
+  const units = await fetchUnitsFromDb(supabase);
+
   try {
     const questions = await fetchAllQuestions(supabase);
 
@@ -408,7 +411,7 @@ async function main() {
       return;
     }
 
-    const plan = generatePlan(analysis);
+    const plan = generatePlan(analysis, units);
     printPlan(plan);
 
     if (options.execute && plan.steps.length > 0) {

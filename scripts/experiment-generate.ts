@@ -36,6 +36,8 @@ import {
 } from './lib/pipeline-steps';
 import { runScriptAsync } from './lib/script-runner';
 import { findMarkdownForUnit } from './lib/unit-discovery';
+import { createScriptSupabase } from './lib/db-queries';
+import { fetchUnitsFromDb } from '../src/lib/units-db';
 
 // Initialize Anthropic client for PDF conversion
 const anthropic = new Anthropic({
@@ -130,6 +132,10 @@ Examples:
 async function main() {
   const options = parseArgs();
   const timestamp = new Date().toISOString().replace(/[:-]/g, '').replace('T', '_').slice(0, 15);
+
+  // Fetch units from database
+  const supabase = createScriptSupabase();
+  const units = await fetchUnitsFromDb(supabase);
 
   // Resolve markdown path
   const markdownPath = findMarkdownForUnit(options.unit);
@@ -227,7 +233,7 @@ async function main() {
     skipTopics: true,
     auditor: options.auditor,
   };
-  const topicResult = await stepExtractTopics(options.unit, markdownPath, topicOptions);
+  const topicResult = await stepExtractTopics(options.unit, markdownPath, topicOptions, units);
   const topics = topicResult.topics || [];
 
   // ── Step 6/8: Generate + audit Cohort B ──

@@ -4,7 +4,7 @@
  * Workflow:
  * 1. Convert PDF to markdown (convert-pdfs.ts)
  * 2. Run this script to extract and validate topics
- * 3. Review suggestions and update units.ts
+ * 3. Review suggestions and update units table in DB
  * 4. Run corpus-generate-questions.ts for the unit
  *
  * Run with: npx tsx scripts/corpus-suggest-topics.ts <markdown-file> <unit-id>
@@ -19,13 +19,15 @@ import { MODELS } from './lib/config';
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
-import { units } from '../src/lib/units';
+import { createScriptSupabase } from './lib/db-queries';
+import { fetchUnitsFromDb } from '../src/lib/units-db';
 import {
   getAllTopics,
   findPotentialDuplicates,
   checkTopicSimilarity,
   TopicSimilarity,
 } from './lib/topic-utils';
+import type { Unit } from '../src/types';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -48,11 +50,12 @@ interface ExtractionResult {
  */
 async function extractTopicCandidates(
   markdown: string,
-  _unitId: string
+  _unitId: string,
+  units: Unit[]
 ): Promise<ExtractionResult> {
 
   // Get all existing topics for context
-  const allTopics = getAllTopics();
+  const allTopics = getAllTopics(units);
   const existingList = Array.from(allTopics.keys());
 
   const prompt = `You are analyzing French 1 course materials to identify distinct teachable topics.
@@ -129,13 +132,14 @@ Extract ALL topics, even if they seem to overlap with existing ones. We will ded
  */
 async function reconcileTopics(
   extracted: ExtractedTopic[],
-  unitId: string
+  unitId: string,
+  units: Unit[]
 ): Promise<{
   useExisting: { extracted: string; existing: string }[];
   addNew: string[];
   needsReview: { extracted: string; candidates: string[]; reason: string }[];
 }> {
-  const allTopics = getAllTopics();
+  const allTopics = getAllTopics(units);
   const existingList = Array.from(allTopics.keys());
 
   const useExisting: { extracted: string; existing: string }[] = [];
@@ -185,7 +189,7 @@ async function reconcileTopics(
 }
 
 /**
- * Generate the suggested topics array for units.ts
+ * Generate the suggested topics array for the units table
  */
 function generateTopicsArray(
   useExisting: { extracted: string; existing: string }[],
@@ -248,37 +252,31 @@ function computeHeadingMappings(
 }
 
 /**
- * Log new topic-heading mappings that aren't yet in topic-headings.ts
+ * Log new topic-heading mappings that aren't yet in the units table.
  */
-async function logNewHeadingMappings(
-  headingMappings: Record<string, string[]>
-): Promise<void> {
-  const topicHeadingsPath = path.join(process.cwd(), 'src', 'lib', 'topic-headings.ts');
-
-  let currentContent = '';
-  if (fs.existsSync(topicHeadingsPath)) {
-    currentContent = fs.readFileSync(topicHeadingsPath, 'utf-8');
-  }
-
-  const existingMappings = currentContent.match(/'([^']+)':\s*\[/g) || [];
-  const existingTopics = existingMappings.map(m => m.replace(/'([^']+)':\s*\[/, '$1'));
-
-  let hasNewMappings = false;
-  for (const topic of Object.keys(headingMappings)) {
-    if (!existingTopics.some(t => t.toLowerCase() === topic.toLowerCase())) {
-      hasNewMappings = true;
-      break;
-    }
-  }
-
-  if (hasNewMappings) {
-    console.log('\n📝 New topic-heading mappings discovered:');
-    for (const [topic, keywords] of Object.entries(headingMappings)) {
-      if (!existingTopics.some(t => t.toLowerCase() === topic.toLowerCase())) {
-        console.log(`   "${topic}": [${keywords.map(k => `'${k}'`).join(', ')}]`);
+function logNewHeadingMappings(
+  headingMappings: Record<string, string[]>,
+  units: Unit[]
+): void {
+  // Build set of topics that already have headings in the DB
+  const existingTopics = new Set<string>();
+  for (const unit of units) {
+    for (const topic of unit.topics) {
+      if (topic.headings.length > 0) {
+        existingTopics.add(topic.name.toLowerCase());
       }
     }
-    console.log('\n   ℹ️  Add these to src/lib/topic-headings.ts for better content extraction');
+  }
+
+  const newEntries = Object.entries(headingMappings)
+    .filter(([topic]) => !existingTopics.has(topic.toLowerCase()));
+
+  if (newEntries.length > 0) {
+    console.log('\n📝 New topic-heading mappings discovered:');
+    for (const [topic, keywords] of newEntries) {
+      console.log(`   "${topic}": [${keywords.map(k => `'${k}'`).join(', ')}]`);
+    }
+    console.log('\n   ℹ️  These will be saved to the units table via stepAutoUpdateFiles');
   }
 }
 
@@ -286,12 +284,12 @@ async function logNewHeadingMappings(
  * Cross-unit topic consolidation.
  * Identifies duplicate/overlapping topics across all units.
  */
-async function consolidateAllTopics() {
+async function consolidateAllTopics(units: Unit[]) {
   console.log('╔════════════════════════════════════════════════════════════╗');
   console.log('║           CROSS-UNIT TOPIC CONSOLIDATION                   ║');
   console.log('╚════════════════════════════════════════════════════════════╝\n');
 
-  const allTopics = getAllTopics();
+  const allTopics = getAllTopics(units);
   const topicNames = Array.from(allTopics.keys());
 
   console.log(`📋 Analyzing ${topicNames.length} topics across ${units.length} units...\n`);
@@ -347,7 +345,7 @@ async function consolidateAllTopics() {
   console.log(`  Distinct (false alarm):   ${results.filter(r => r.similarity === 'distinct').length}`);
 
   if (identical.length > 0 || overlapping.length > 0) {
-    console.log('\n⚠️  Action needed: review identical/overlapping topics in units.ts');
+    console.log('\n⚠️  Action needed: review identical/overlapping topics in units table');
   } else {
     console.log('\n✅ No consolidation needed.');
   }
@@ -378,9 +376,13 @@ Examples:
     process.exit(0);
   }
 
+  // Fetch units from database
+  const supabase = createScriptSupabase();
+  const units = await fetchUnitsFromDb(supabase);
+
   // Standalone consolidation mode
   if (args[0] === '--consolidate') {
-    await consolidateAllTopics();
+    await consolidateAllTopics(units);
     return;
   }
 
@@ -409,7 +411,7 @@ Examples:
   if (existingUnit) {
     console.log(`ℹ️  Unit exists with ${existingUnit.topics.length} topics`);
   } else {
-    console.log('🆕 New unit (not in units.ts yet)');
+    console.log('🆕 New unit (not in DB yet)');
   }
   console.log();
 
@@ -419,13 +421,13 @@ Examples:
 
   // Extract topic candidates and suggested label
   console.log('🔍 Extracting topic candidates...');
-  const extraction = await extractTopicCandidates(markdown, unitId);
+  const extraction = await extractTopicCandidates(markdown, unitId, units);
   console.log(`   Found ${extraction.topics.length} potential topics`);
   console.log(`   Suggested label: "${extraction.suggestedLabel}"\n`);
 
   // Reconcile with existing topics
   console.log('🔄 Reconciling with existing topics...');
-  const reconciled = await reconcileTopics(extraction.topics, unitId);
+  const reconciled = await reconcileTopics(extraction.topics, unitId, units);
   console.log();
 
   // Output results
@@ -475,7 +477,7 @@ Examples:
   const suggestedTopics = generateTopicsArray(reconciled.useExisting, reconciled.addNew);
 
   console.log('\n' + '═'.repeat(60));
-  console.log('SUGGESTED UPDATE FOR units.ts');
+  console.log('SUGGESTED UPDATE FOR units table');
   console.log('═'.repeat(60));
 
   // Determine the label to use - only show if different from existing
@@ -491,7 +493,7 @@ Examples:
   }
 
   console.log(`
-// In src/lib/units.ts, ${existingUnit ? 'update' : 'add'}:
+// In units table, ${existingUnit ? 'update' : 'add'}:
 
 {
   id: '${unitId}',
@@ -527,7 +529,7 @@ ${suggestedTopics.map(t => `    '${t.replace(/'/g, "\\'")}',`).join('\n')}
   console.log(`\n💾 Detailed results saved to: ${outputPath}`);
 
   // Log any new heading mappings that need to be added
-  await logNewHeadingMappings(headingMappings);
+  logNewHeadingMappings(headingMappings, units);
 
   // Summary
   console.log('\n' + '═'.repeat(60));

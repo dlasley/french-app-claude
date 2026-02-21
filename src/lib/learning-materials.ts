@@ -1,11 +1,15 @@
 import fs from 'fs';
 import path from 'path';
-import { units } from './units';
+
+/** Minimal shape needed from units — avoids coupling to full Unit type. */
+interface UnitWithTopics {
+  topics: Array<{ name: string; headings: string[] }>;
+}
 
 /**
- * Look up heading patterns for a topic from units.ts
+ * Look up heading patterns for a topic from the provided units data.
  */
-function getTopicHeadings(topic: string): string[] {
+function getTopicHeadings(topic: string, units: UnitWithTopics[]): string[] {
   for (const unit of units) {
     const found = unit.topics.find(t => t.name === topic);
     if (found) return found.headings;
@@ -18,9 +22,8 @@ function getTopicHeadings(topic: string): string[] {
  * Follows the naming convention used by corpus-generate.ts / lib/unit-discovery.ts.
  */
 function getMarkdownFilename(unitId: string): string {
-  if (unitId === 'introduction') return 'French 1 Introduction.md';
-  const num = unitId.replace('unit-', '');
-  return `French 1 Unit ${num}.md`;
+  const label = unitId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return `French 1 ${label}.md`;
 }
 
 /**
@@ -41,7 +44,7 @@ export function loadUnitMaterials(unitId: string): string {
 /**
  * Extract relevant content for a specific topic from the unit materials
  */
-export function extractTopicContent(materials: string, topic: string): string {
+export function extractTopicContent(materials: string, topic: string, units: UnitWithTopics[]): string {
   // Split content into sections
   const lines = materials.split('\n');
   const relevantLines: string[] = [];
@@ -81,7 +84,7 @@ export function extractTopicContent(materials: string, topic: string): string {
   }
 
   // Fallback: try heading patterns from centralized topic-headings mapping
-  const aliases = getTopicHeadings(topic);
+  const aliases = getTopicHeadings(topic, units);
 
   // Collect ALL matching sections via alias (multi-section extraction)
   const collectedSections: string[] = [];
@@ -132,40 +135,4 @@ export function extractTopicContent(materials: string, topic: string): string {
 
   // Return a minimal prompt that instructs Claude to work from general knowledge
   return `Topic: ${topic}\n\nNote: No specific learning materials found for this topic. Generate questions based on standard French 1 curriculum content for this topic.`;
-}
-
-/**
- * Extract YouTube links from learning materials for a specific topic
- */
-export function extractYouTubeLinks(materials: string, topic?: string): { url: string; title: string }[] {
-  const content = topic ? extractTopicContent(materials, topic) : materials;
-  const lines = content.split('\n');
-  const youtubeLinks: { url: string; title: string }[] = [];
-
-  // Regular expressions to match YouTube URLs
-  const youtubeRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/g;
-
-  let currentSection = '';
-
-  for (const line of lines) {
-    // Track current section header for context
-    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      currentSection = headingMatch[2].replace(/\*\*/g, '').trim();
-    }
-
-    // Find YouTube links
-    const matches = line.matchAll(youtubeRegex);
-    for (const match of matches) {
-      const url = match[0].startsWith('http') ? match[0] : `https://${match[0]}`;
-      const title = currentSection || topic || 'Video Resource';
-
-      // Avoid duplicates
-      if (!youtubeLinks.some(link => link.url === url)) {
-        youtubeLinks.push({ url, title });
-      }
-    }
-  }
-
-  return youtubeLinks;
 }

@@ -34,7 +34,7 @@ config({ path: '.env.local' });
 import Anthropic from '@anthropic-ai/sdk';
 import { SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import { units } from '../src/lib/units';
+import { fetchUnitsFromDb } from '../src/lib/units-db';
 import { loadUnitMaterials, extractTopicContent } from '../src/lib/learning-materials';
 import { inferWritingType, WritingType } from './lib/writing-type-inference';
 import { MODELS, STRUCTURED_TYPES, TYPED_TYPES, getModelForType, QuestionType } from './lib/config';
@@ -738,6 +738,7 @@ async function generateQuestionsForTopic(
   topic: string,
   difficulty: 'beginner' | 'intermediate' | 'advanced',
   numQuestions: number,
+  units: Array<{ topics: Array<{ name: string; headings: string[] }> }>,
   questionType?: 'multiple-choice' | 'fill-in-blank' | 'true-false' | 'writing',
   writingType?: WritingType,
   modelOverride?: string,
@@ -750,7 +751,7 @@ async function generateQuestionsForTopic(
 
   try {
     const unitMaterials = loadUnitMaterials(unitId);
-    const topicContent = extractTopicContent(unitMaterials, topic);
+    const topicContent = extractTopicContent(unitMaterials, topic, units);
 
     const prompt = `You are a French 1 teacher creating quiz questions about "${topic}".
 
@@ -1163,6 +1164,10 @@ async function generateAllQuestions(options: CLIOptions) {
     console.log(`📦 Batch record created: ${options.batchId}`);
   }
 
+  // Fetch units from database
+  const dbClient = supabaseClient || createScriptSupabase();
+  const units = await fetchUnitsFromDb(dbClient);
+
   const allQuestions: Question[] = [];
   let totalGenerated = 0;
   let totalAttempted = 0;
@@ -1234,6 +1239,7 @@ async function generateAllQuestions(options: CLIOptions) {
             topic,
             difficulty,
             pass.count,
+            units,
             pass.questionType,
             pass.writingType,
             pass.model,

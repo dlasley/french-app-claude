@@ -21,9 +21,10 @@ import { resolve } from 'path';
 config({ path: resolve(__dirname, '../.env.local') });
 
 import { createHash } from 'crypto';
-import { units } from '../src/lib/units';
+import { fetchUnitsFromDb } from '../src/lib/units-db';
 import { loadUnitMaterials, extractTopicContent } from '../src/lib/learning-materials';
 import { createScriptSupabase } from './lib/db-queries';
+import type { Unit } from '../src/types';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -132,10 +133,10 @@ function extractUrlsFromContent(
 /**
  * Extract resources for a single unit, mapping to topics.
  */
-function extractForUnit(unitId: string): ExtractedResource[] {
+function extractForUnit(unitId: string, units: Unit[]): ExtractedResource[] {
   const unit = units.find(u => u.id === unitId);
   if (!unit) {
-    console.warn(`⚠️  Unit ${unitId} not found in units.ts`);
+    console.warn(`⚠️  Unit ${unitId} not found in DB`);
     return [];
   }
 
@@ -156,7 +157,7 @@ function extractForUnit(unitId: string): ExtractedResource[] {
 
   // Pass 1: Extract URLs per topic section
   for (const topic of unit.topics) {
-    const topicContent = extractTopicContent(materials, topic.name);
+    const topicContent = extractTopicContent(materials, topic.name, units);
 
     // Skip the fallback "No specific learning materials" response
     if (topicContent.startsWith('Topic:') && topicContent.includes('No specific learning materials')) {
@@ -276,6 +277,8 @@ Options:
 
 async function main() {
   const options = parseArgs();
+  const supabase = createScriptSupabase();
+  const units = await fetchUnitsFromDb(supabase);
 
   console.log('📚 Learning Resource Extraction');
   console.log('================================');
@@ -301,7 +304,7 @@ async function main() {
 
   for (const unit of targetUnits) {
     console.log(`\n📂 ${unit.title} (${unit.id})`);
-    const resources = extractForUnit(unit.id);
+    const resources = extractForUnit(unit.id, units);
     allResources.push(...resources);
 
     // Summary per unit

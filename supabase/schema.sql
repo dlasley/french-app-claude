@@ -143,6 +143,19 @@ CREATE TABLE leitner_state (
 CREATE INDEX idx_leitner_state_study_code ON leitner_state(study_code_id);
 CREATE INDEX idx_leitner_state_box ON leitner_state(study_code_id, box);
 
+-- Units Table
+-- Course unit definitions with topic/heading mappings (source of truth for unit structure)
+CREATE TABLE units (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  label TEXT,
+  description TEXT NOT NULL,
+  topics JSONB NOT NULL DEFAULT '[]'::jsonb,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Learning Resources Table
 -- Stores learning resources (videos, articles, etc.) organized by unit and topic
 CREATE TABLE learning_resources (
@@ -292,6 +305,12 @@ CREATE TRIGGER questions_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_questions_updated_at();
 
+-- Auto-update updated_at on units (reuses existing trigger function)
+CREATE TRIGGER units_updated_at
+  BEFORE UPDATE ON units
+  FOR EACH ROW
+  EXECUTE FUNCTION update_questions_updated_at();
+
 -- Auto-update updated_at on learning_resources (reuses existing trigger function)
 CREATE TRIGGER learning_resources_updated_at
   BEFORE UPDATE ON learning_resources
@@ -306,6 +325,7 @@ ALTER TABLE question_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leitner_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE learning_resources ENABLE ROW LEVEL SECURITY;
 
 -- Study codes policies (no DELETE for anon; INSERT/UPDATE restricted)
@@ -375,6 +395,12 @@ CREATE POLICY "anon_insert_leitner_state"
 
 CREATE POLICY "anon_update_leitner_state"
   ON leitner_state FOR UPDATE
+  TO anon
+  USING (true);
+
+-- Units policies (read-only for anon; scripts use secret key for writes)
+CREATE POLICY "anon_select_units"
+  ON units FOR SELECT
   TO anon
   USING (true);
 

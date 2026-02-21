@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { units } from '@/lib/units';
+import { useUnits } from '@/hooks/useUnits';
 import {
   getStoredStudyCode,
   storeStudyCode,
@@ -40,6 +40,7 @@ export default function Home() {
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { units, loading: unitsLoading } = useUnits();
   const [selectedUnit, setSelectedUnit] = useState<string>('all');
   const [numQuestions, setNumQuestions] = useState<number>(10);
   const [difficulty, setDifficulty] = useState<'beginner' | 'intermediate' | 'advanced'>('beginner');
@@ -168,8 +169,8 @@ function HomeContent() {
 
   const selectedUnitData = units.find(u => u.id === selectedUnit);
 
-  // Phase: resolving - show loading spinner
-  if (phase === 'resolving') {
+  // Phase: resolving or units still loading - show loading spinner
+  if (phase === 'resolving' || unitsLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <LoadingSpinner />

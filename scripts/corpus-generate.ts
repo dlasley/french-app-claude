@@ -15,7 +15,7 @@
  * Options:
  *   --review-topics Enable interactive topic review (for expert users)
  *   --skip-convert  Skip PDF conversion (use existing markdown)
- *   --skip-topics   Skip topic extraction (use existing topics in units.ts)
+ *   --skip-topics   Skip topic extraction (use existing topics from DB)
  *   --write-db      Sync generated questions to Supabase
  *   --audit         Run quality audit after generation (requires --write-db)
  *   --auditor <m>   Audit model: 'mistral' (default) or 'sonnet'
@@ -33,7 +33,9 @@ import { config } from 'dotenv';
 config({ path: '.env.local' });
 
 import Anthropic from '@anthropic-ai/sdk';
-import { units } from '../src/lib/units';
+import type { Unit } from '../src/types';
+import { createScriptSupabase } from './lib/db-queries';
+import { fetchUnitsFromDb } from '../src/lib/units-db';
 import {
   stepConvertPdf,
   stepExtractTopics,
@@ -127,7 +129,7 @@ Options:
   --review-topics Interactive topic review (for domain experts only)
   --skip-convert  Skip PDF conversion (use existing markdown)
   --force-convert Force PDF reconversion even if markdown exists
-  --skip-topics   Skip topic extraction (use existing topics in units.ts)
+  --skip-topics   Skip topic extraction (use existing topics from DB)
   --write-db      Sync generated questions to database
   --audit         Run quality audit after generation (requires --write-db)
   --auditor <m>   Audit model: 'mistral' (default) or 'sonnet'
@@ -146,7 +148,7 @@ Examples:
 
 Pipeline Steps:
   1. PDF → Markdown    Convert PDF to structured markdown
-  2. Topic Extraction  Extract and validate topics against units.ts
+  2. Topic Extraction  Extract and validate topics against DB
   3. Question Gen      Generate questions for each topic/difficulty
   4. Quality Audit     (optional, --audit) Promote pending → active/flagged
   5. Resource Extract  Extract learning resources from markdown to DB
@@ -158,7 +160,8 @@ Pipeline Steps:
  */
 async function runPipelineForUnit(
   unitId: string,
-  options: PipelineOptions
+  options: PipelineOptions,
+  units: Unit[]
 ): Promise<void> {
   console.log(`\n${'═'.repeat(65)}`);
   console.log(`  PROCESSING: ${unitId.toUpperCase()}`);
@@ -178,17 +181,17 @@ async function runPipelineForUnit(
   }
 
   // Step 2: Extract topics
-  const step2 = await stepExtractTopics(unitId, step1.markdownPath, options);
+  const step2 = await stepExtractTopics(unitId, step1.markdownPath, options, units);
   if (!step2.success) {
     console.log('\n  ❌ Pipeline stopped at topic extraction');
     return;
   }
 
-  // Step 2.5: Auto-update source files (only for new units)
+  // Step 2.5: Auto-update DB (only for new units)
   let topics = step2.topics || [];
   const existingUnit = units.find(u => u.id === unitId);
   if (!existingUnit) {
-    const step2_5 = await stepAutoUpdateFiles(unitId, options);
+    const step2_5 = await stepAutoUpdateFiles(unitId, options, units);
     if (!step2_5.success) {
       console.log('\n  ❌ Pipeline stopped at source file update');
       return;
@@ -224,6 +227,8 @@ async function runPipelineForUnit(
  */
 async function main() {
   const options = parseArgs();
+  const supabase = createScriptSupabase();
+  const units = await fetchUnitsFromDb(supabase);
 
   console.log(`
 ╔════════════════════════════════════════════════════════════════╗
@@ -254,7 +259,7 @@ async function main() {
   if (options.unitId === '--all') {
     // Process all units
     for (const unit of units) {
-      await runPipelineForUnit(unit.id, options);
+      await runPipelineForUnit(unit.id, options, units);
     }
 
     // Post-processing: cross-unit topic consolidation
@@ -276,7 +281,7 @@ async function main() {
       process.exit(1);
     }
 
-    await runPipelineForUnit(options.unitId, options);
+    await runPipelineForUnit(options.unitId, options, units);
   }
 
   console.log(`\n${'═'.repeat(65)}`);

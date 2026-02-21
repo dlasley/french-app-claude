@@ -9,8 +9,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
-import { units } from '../../src/lib/units';
-import { insertUnitEntry } from './file-updaters';
+import type { Unit } from '../../src/types';
+import { createScriptSupabase } from './db-queries';
 import {
   checkPdftotext,
   convertPdfToMarkdown,
@@ -216,7 +216,8 @@ export async function stepConvertPdf(
 export async function stepExtractTopics(
   unitId: string,
   markdownPath: string,
-  options: StepOptions
+  options: StepOptions,
+  units: Unit[]
 ): Promise<{ success: boolean; topics?: string[] }> {
   console.log('\n┌─────────────────────────────────────────────────────────────┐');
   console.log('│  STEP 2: Topic Extraction & Validation                     │');
@@ -228,10 +229,10 @@ export async function stepExtractTopics(
     console.log('  ⏭️  Skipping (--skip-topics)');
     if (existingUnit) {
       const topicNames = existingUnit.topics.map(t => t.name);
-      console.log(`  ℹ️  Using ${topicNames.length} existing topics from units.ts`);
+      console.log(`  ℹ️  Using ${topicNames.length} existing topics from DB`);
       return { success: true, topics: topicNames };
     }
-    console.log(`  ❌ Unit ${unitId} not found in units.ts`);
+    console.log(`  ❌ Unit ${unitId} not found in DB`);
     return { success: false };
   }
 
@@ -265,7 +266,7 @@ export async function stepExtractTopics(
   // After topic extraction, prompt for review if --review-topics specified
   if (options.reviewTopics) {
     console.log('\n  ⚠️  Review the suggested topics above');
-    console.log('     Update units.ts if needed, then continue');
+    console.log('     Update units in DB if needed, then continue');
 
     const proceed = await promptUser('\n  Continue with question generation?');
     if (!proceed) {
@@ -282,18 +283,18 @@ export async function stepExtractTopics(
 
 export async function stepAutoUpdateFiles(
   unitId: string,
-  options: StepOptions
+  options: StepOptions,
+  units: Unit[]
 ): Promise<{ success: boolean; topics?: string[] }> {
   console.log('\n┌─────────────────────────────────────────────────────────────┐');
-  console.log('│  STEP 2.5: Auto-update Source Files (new unit)             │');
+  console.log('│  STEP 2.5: Auto-update DB (new unit)                       │');
   console.log('└─────────────────────────────────────────────────────────────┘\n');
 
   // Read the topic extraction output
   const topicsJsonPath = path.join(process.cwd(), 'data', `topics-${unitId}.json`);
   if (!fs.existsSync(topicsJsonPath)) {
     if (options.dryRun) {
-      console.log(`  [DRY RUN] Would read ${topicsJsonPath} and auto-update:`);
-      console.log('     - src/lib/units.ts (new unit entry with topic headings)');
+      console.log(`  [DRY RUN] Would read ${topicsJsonPath} and upsert to units table`);
       return { success: true, topics: [] };
     }
     console.log(`  ❌ Topic extraction output not found: ${topicsJsonPath}`);
@@ -308,7 +309,7 @@ export async function stepAutoUpdateFiles(
     for (const item of topicsData.reconciled.needsReview) {
       console.log(`     ? "${item.extracted}" — ${item.reason}`);
     }
-    console.log('     (Included in unit entry — edit units.ts after if needed)\n');
+    console.log('     (Included in unit entry — edit in DB after if needed)\n');
   }
 
   const suggestedTopics: string[] = topicsData.suggestedTopics || [];
@@ -329,30 +330,29 @@ export async function stepAutoUpdateFiles(
     headings: headingMappings[name] || [],
   }));
 
-  // --- Update units.ts ---
-  const unitsPath = path.join(process.cwd(), 'src', 'lib', 'units.ts');
-  const unitsContent = fs.readFileSync(unitsPath, 'utf-8');
-
   const unitNum = unitId.replace('unit-', '');
-  const unitData = {
+  const row = {
     id: unitId,
     title: `🇫🇷 Unit ${unitNum}`,
     label: suggestedLabel,
     description: `Unit ${unitNum} content`,
     topics: topicsWithHeadings,
+    sort_order: units.length, // append after existing units
   };
 
-  const updatedUnits = insertUnitEntry(unitsContent, unitData);
-
-  if (updatedUnits) {
-    if (options.dryRun) {
-      console.log(`\n  [DRY RUN] Would update src/lib/units.ts with ${suggestedTopics.length} topics`);
-    } else {
-      fs.writeFileSync(unitsPath, updatedUnits);
-      console.log(`  ✅ Updated src/lib/units.ts — added ${unitId}`);
-    }
+  if (options.dryRun) {
+    console.log(`\n  [DRY RUN] Would upsert unit ${unitId} with ${suggestedTopics.length} topics to DB`);
   } else {
-    console.log(`  ℹ️  Unit ${unitId} already in units.ts (skipped)`);
+    const supabase = createScriptSupabase({ write: true });
+    const { error } = await supabase
+      .from('units')
+      .upsert(row, { onConflict: 'id' });
+
+    if (error) {
+      console.log(`  ❌ Failed to upsert unit: ${error.message}`);
+      return { success: false };
+    }
+    console.log(`  ✅ Upserted ${unitId} to units table — ${suggestedTopics.length} topics`);
   }
 
   // Clean up temp JSON

@@ -3,7 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Question } from '@/types';
-import { units } from '@/lib/units';
+import { useUnits } from '@/hooks/useUnits';
 import { getStoredStudyCode, getStudyCodeId, getQuizHistory } from '@/lib/study-codes';
 import { saveQuizResults, saveQuizResultsLocally, getProgress, updateLeitnerStateForQuestion } from '@/lib/progress-tracking';
 import { QuizMode, getModeConfig } from '@/lib/quiz-modes';
@@ -41,6 +41,7 @@ export default function QuizPage() {
   const mode = (searchParams.get('mode') || 'practice') as QuizMode;
   const adaptive = searchParams.get('adaptive') === 'true';
   const previewMode = searchParams.get('preview');
+  const { units } = useUnits();
 
   const unit = unitId === 'all' ? null : units.find((u) => u.id === unitId);
   const displayTitle = unitId === 'all' ? 'All Units' : unit?.title || 'Quiz';

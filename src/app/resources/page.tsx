@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { units } from '@/lib/units';
+import { useUnits } from '@/hooks/useUnits';
 import { getResourcesByUnit, getAllResources } from '@/lib/learning-resources-client';
 import ResourceCard from '@/components/ResourceCard';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -10,11 +10,19 @@ import type { LearningResource } from '@/types';
 type ViewMode = 'unit' | 'topic';
 
 export default function ResourcesPage() {
+  const { units, loading: unitsLoading } = useUnits();
   const [viewMode, setViewMode] = useState<ViewMode>('unit');
-  const [selectedUnit, setSelectedUnit] = useState(units[0].id);
+  const [selectedUnit, setSelectedUnit] = useState('');
   const [resources, setResources] = useState<LearningResource[]>([]);
   const [allResources, setAllResources] = useState<LearningResource[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Set initial selectedUnit once units load
+  useEffect(() => {
+    if (units.length > 0 && !selectedUnit) {
+      setSelectedUnit(units[0].id);
+    }
+  }, [units, selectedUnit]);
 
   // Load resources for "By Unit" view
   useEffect(() => {
@@ -67,6 +75,14 @@ export default function ResourcesPage() {
   const allResourcesByTopic = groupByTopic(dedupeByUrl(allResources));
 
   const selectedUnitData = units.find(u => u.id === selectedUnit);
+
+  if (unitsLoading) {
+    return (
+      <div className="flex justify-center py-20">
+        <LoadingSpinner />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">

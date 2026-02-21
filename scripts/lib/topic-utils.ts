@@ -3,7 +3,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { units } from '../../src/lib/units';
+import type { Unit } from '../../src/types';
 import { MODELS } from './config';
 
 export interface TopicSimilarity {
@@ -18,7 +18,7 @@ export interface TopicSimilarity {
 /**
  * Get all existing topics with their unit context
  */
-export function getAllTopics(): Map<string, string> {
+export function getAllTopics(units: Unit[]): Map<string, string> {
   const topicMap = new Map<string, string>();
   for (const unit of units) {
     for (const topic of unit.topics) {

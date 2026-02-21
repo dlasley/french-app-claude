@@ -1,6 +1,19 @@
-import { Unit } from '@/types';
+/**
+ * One-time seed script: populates the units table from static data.
+ * Idempotent via upsert — safe to re-run.
+ *
+ * Usage:
+ *   npx tsx scripts/db-seed-units.ts
+ *   npx tsx scripts/db-seed-units.ts --dry-run
+ *   npx tsx scripts/db-seed-units.ts --help
+ */
 
-export const units: Unit[] = [
+import { config } from 'dotenv';
+config({ path: '.env.local' });
+
+import { createScriptSupabase } from './lib/db-queries';
+
+const UNITS = [
   {
     id: 'introduction',
     title: '🇫🇷 Introduction',
@@ -66,3 +79,57 @@ export const units: Unit[] = [
     ],
   },
 ];
+
+async function main() {
+  const args = process.argv.slice(2);
+  const dryRun = args.includes('--dry-run');
+
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Seed Units Table
+
+Usage: npx tsx scripts/db-seed-units.ts [options]
+
+Options:
+  --dry-run    Show what would be inserted without writing
+  --help, -h   Show this help
+`);
+    process.exit(0);
+  }
+
+  const supabase = createScriptSupabase({ write: !dryRun });
+
+  console.log(`Seeding ${UNITS.length} units${dryRun ? ' (dry run)' : ''}...\n`);
+
+  for (let i = 0; i < UNITS.length; i++) {
+    const unit = UNITS[i];
+    const row = {
+      id: unit.id,
+      title: unit.title,
+      label: unit.label,
+      description: unit.description,
+      topics: unit.topics,
+      sort_order: i,
+    };
+
+    if (dryRun) {
+      console.log(`  [DRY RUN] Would upsert: ${unit.id} (${unit.topics.length} topics, sort_order=${i})`);
+      continue;
+    }
+
+    const { error } = await supabase
+      .from('units')
+      .upsert(row, { onConflict: 'id' });
+
+    if (error) {
+      console.error(`  ❌ Failed to seed ${unit.id}: ${error.message}`);
+      process.exit(1);
+    }
+
+    console.log(`  ✅ ${unit.id} — ${unit.topics.length} topics`);
+  }
+
+  console.log(`\nDone${dryRun ? ' (dry run — no changes made)' : ''}.`);
+}
+
+main().catch(console.error);
