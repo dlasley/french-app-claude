@@ -53,13 +53,6 @@ const anthropic = new Anthropic({
 interface PipelineOptions extends StepOptions {
   unitId: string | '--all';
   audit: boolean;
-  // Experiment framework
-  experimentId?: string;
-  cohort?: string;
-  generationModelStructured?: string;
-  generationModelTyped?: string;
-  validationModel?: string;
-  auditModel?: string;
 }
 
 /**
@@ -91,20 +84,6 @@ function parseArgs(): PipelineOptions {
   const mdFileIdx = args.indexOf('--markdown-file');
   const mdFileValue = mdFileIdx >= 0 ? args[mdFileIdx + 1] : undefined;
 
-  // Parse experiment flags
-  const expIdIdx = args.indexOf('--experiment-id');
-  const expIdValue = expIdIdx >= 0 ? args[expIdIdx + 1] : undefined;
-  const cohortIdx = args.indexOf('--cohort');
-  const cohortValue = cohortIdx >= 0 ? args[cohortIdx + 1] : undefined;
-  const genStructIdx = args.indexOf('--generation-model-structured');
-  const genStructValue = genStructIdx >= 0 ? args[genStructIdx + 1] : undefined;
-  const genTypedIdx = args.indexOf('--generation-model-typed');
-  const genTypedValue = genTypedIdx >= 0 ? args[genTypedIdx + 1] : undefined;
-  const valModelIdx = args.indexOf('--validation-model');
-  const valModelValue = valModelIdx >= 0 ? args[valModelIdx + 1] : undefined;
-  const auditModelIdx = args.indexOf('--audit-model');
-  const auditModelValue = auditModelIdx >= 0 ? args[auditModelIdx + 1] : undefined;
-
   const options: PipelineOptions = {
     unitId: args[0],
     reviewTopics: args.includes('--review-topics'),
@@ -119,23 +98,11 @@ function parseArgs(): PipelineOptions {
     convertOnly: args.includes('--convert-only'),
     batchId: batchIdValue,
     markdownFile: mdFileValue,
-    experimentId: expIdValue,
-    cohort: cohortValue,
-    generationModelStructured: genStructValue,
-    generationModelTyped: genTypedValue,
-    validationModel: valModelValue,
-    auditModel: auditModelValue,
   };
 
   // Validate --audit requires --write-db
   if (options.audit && !options.writeDb) {
     console.error('❌ --audit requires --write-db (questions must be in DB to audit)');
-    process.exit(1);
-  }
-
-  // Validate experiment flags
-  if (options.experimentId && !options.cohort) {
-    console.error('❌ --experiment-id requires --cohort');
     process.exit(1);
   }
 
