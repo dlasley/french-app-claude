@@ -1,7 +1,7 @@
 /**
  * High-level pipeline step functions.
  *
- * Extracted from regenerate.ts — each step handles one stage of the
+ * Extracted from corpus-generate.ts — each step handles one stage of the
  * content generation pipeline. Used by both corpus-generate (production)
  * and experiment-generate (A/B testing) orchestrators.
  */
@@ -246,11 +246,11 @@ export async function stepExtractTopics(
   console.log(`  🔍 Extracting topics from: ${path.basename(markdownPath)}`);
 
   if (options.dryRun) {
-    console.log(`  [DRY RUN] Would run: npx tsx scripts/suggest-unit-topics.ts "${markdownPath}" ${unitId}`);
+    console.log(`  [DRY RUN] Would run: npx tsx scripts/corpus-suggest-topics.ts "${markdownPath}" ${unitId}`);
     return { success: true, topics: existingUnit?.topics.map(t => t.name) || [] };
   }
 
-  const result = runScript('scripts/suggest-unit-topics.ts', [
+  const result = runScript('scripts/corpus-suggest-topics.ts', [
     `"${markdownPath}"`,
     unitId,
   ], false);
@@ -407,7 +407,7 @@ export async function stepGenerateQuestions(
   if (options.validationModel) {
     args.push('--validation-model', options.validationModel);
   }
-  console.log(`  🚀 Running: npx tsx scripts/generate-questions.ts ${args.join(' ')}\n`);
+  console.log(`  🚀 Running: npx tsx scripts/corpus-generate-questions.ts ${args.join(' ')}\n`);
 
   if (options.dryRun) {
     const estimate = topics.length * 3 * 10;
@@ -415,7 +415,7 @@ export async function stepGenerateQuestions(
     return { success: true, count: estimate };
   }
 
-  return runScriptAsync('scripts/generate-questions.ts', args);
+  return runScriptAsync('scripts/corpus-generate-questions.ts', args);
 }
 
 // ─── Step 4: Quality Audit ───────────────────────────────────────────────────
@@ -425,7 +425,7 @@ export async function stepAuditQuestions(
   options: StepOptions
 ): Promise<{ success: boolean }> {
   const auditorLabel = options.auditor === 'mistral' ? 'Mistral Large' : 'Sonnet';
-  const auditScript = options.auditor === 'mistral' ? 'audit-quality-mistral.ts' : 'audit-quality.ts';
+  const auditScript = options.auditor === 'mistral' ? 'audit-mistral.ts' : 'audit-sonnet.ts';
 
   console.log('\n┌─────────────────────────────────────────────────────────────┐');
   console.log(`│  STEP 4: Quality Audit — ${auditorLabel} (pending → active/flagged)  │`);
@@ -467,7 +467,7 @@ export async function stepExtractResources(
   console.log('└─────────────────────────────────────────────────────────────┘\n');
 
   const resourceArgs = ['--unit', unitId, '--write-db'];
-  const result = runScript('scripts/extract-learning-resources.ts', resourceArgs, options.dryRun);
+  const result = runScript('scripts/corpus-extract-resources.ts', resourceArgs, options.dryRun);
   if (!result.success) {
     console.log('\n  ⚠️  Resource extraction failed (non-fatal)');
   }

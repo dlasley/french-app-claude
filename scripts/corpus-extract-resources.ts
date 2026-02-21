@@ -7,7 +7,7 @@
  * and inserts them into the learning_resources database table.
  *
  * Usage:
- *   npx tsx scripts/extract-learning-resources.ts [options]
+ *   npx tsx scripts/corpus-extract-resources.ts [options]
  *
  * Options:
  *   --unit <unit-id>    Extract for a specific unit (default: all)

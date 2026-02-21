@@ -1,7 +1,7 @@
 /**
  * Unit file resolution utilities.
  *
- * Extracted from regenerate.ts — handles finding PDFs and markdown
+ * Extracted from corpus-generate.ts — handles finding PDFs and markdown
  * files for a given unit ID.
  */
 
@@ -172,7 +172,7 @@ export function findMarkdownForUnit(unitId: string): string | null {
   for (const m of matches) {
     console.error(`     - ${m}`);
   }
-  console.error(`  💡 Rename files or use explicit path with suggest-unit-topics.ts directly`);
+  console.error(`  💡 Rename files or use explicit path with corpus-suggest-topics.ts directly`);
   throw new Error(`Ambiguous markdown files for ${unitId}`);
 }
 

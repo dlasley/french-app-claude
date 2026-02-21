@@ -15,7 +15,7 @@ function getTopicHeadings(topic: string): string[] {
 
 /**
  * Derive the markdown filename for a unit ID.
- * Follows the naming convention used by regenerate.ts (line 536).
+ * Follows the naming convention used by corpus-generate.ts / lib/unit-discovery.ts.
  */
 function getMarkdownFilename(unitId: string): string {
   if (unitId === 'introduction') return 'French 1 Introduction.md';

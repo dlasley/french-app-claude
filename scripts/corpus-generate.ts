@@ -3,14 +3,14 @@
  *
  * Orchestrates:
  * 1. PDF → Markdown conversion (convert-pdfs.ts logic)
- * 2. Topic extraction & validation (suggest-unit-topics.ts logic)
- * 3. Question generation (generate-questions.ts)
- * 4. Quality audit (audit-quality-mistral.ts / audit-quality.ts)
- * 5. Learning resource extraction (extract-learning-resources.ts)
+ * 2. Topic extraction & validation (corpus-suggest-topics.ts logic)
+ * 3. Question generation (corpus-generate-questions.ts)
+ * 4. Quality audit (audit-mistral.ts / audit-sonnet.ts)
+ * 5. Learning resource extraction (corpus-extract-resources.ts)
  *
  * Usage:
- *   npx tsx scripts/regenerate.ts <unit-id> [options]
- *   npx tsx scripts/regenerate.ts --all [options]
+ *   npx tsx scripts/corpus-generate.ts <unit-id> [options]
+ *   npx tsx scripts/corpus-generate.ts --all [options]
  *
  * Options:
  *   --review-topics Enable interactive topic review (for expert users)
@@ -22,11 +22,11 @@
  *   --dry-run       Show what would be done without executing
  *
  * Examples:
- *   npx tsx scripts/regenerate.ts unit-4
- *   npx tsx scripts/regenerate.ts unit-4 --write-db
- *   npx tsx scripts/regenerate.ts unit-4 --write-db --audit
- *   npx tsx scripts/regenerate.ts unit-4 --skip-convert
- *   npx tsx scripts/regenerate.ts --all --write-db
+ *   npx tsx scripts/corpus-generate.ts unit-4
+ *   npx tsx scripts/corpus-generate.ts unit-4 --write-db
+ *   npx tsx scripts/corpus-generate.ts unit-4 --write-db --audit
+ *   npx tsx scripts/corpus-generate.ts unit-4 --skip-convert
+ *   npx tsx scripts/corpus-generate.ts --all --write-db
  */
 
 import { config } from 'dotenv';
@@ -116,8 +116,8 @@ function printUsage(): void {
 ╚════════════════════════════════════════════════════════════════╝
 
 Usage:
-  npx tsx scripts/regenerate.ts <unit-id> [options]
-  npx tsx scripts/regenerate.ts --all [options]
+  npx tsx scripts/corpus-generate.ts <unit-id> [options]
+  npx tsx scripts/corpus-generate.ts --all [options]
 
 Options:
   --review-topics Interactive topic review (for fluent French speakers only)
@@ -134,11 +134,11 @@ Options:
   --markdown-file <path>  Use specified markdown file (bypasses PDF conversion)
 
 Examples:
-  npx tsx scripts/regenerate.ts unit-4                    # Full pipeline for unit-4
-  npx tsx scripts/regenerate.ts unit-4 --write-db         # Generate and sync to DB
-  npx tsx scripts/regenerate.ts unit-4 --write-db --audit # Generate, sync, and audit
-  npx tsx scripts/regenerate.ts unit-4 --skip-convert --write-db
-  npx tsx scripts/regenerate.ts --all --write-db          # Regenerate all units
+  npx tsx scripts/corpus-generate.ts unit-4                    # Full pipeline for unit-4
+  npx tsx scripts/corpus-generate.ts unit-4 --write-db         # Generate and sync to DB
+  npx tsx scripts/corpus-generate.ts unit-4 --write-db --audit # Generate, sync, and audit
+  npx tsx scripts/corpus-generate.ts unit-4 --skip-convert --write-db
+  npx tsx scripts/corpus-generate.ts --all --write-db          # Regenerate all units
 
 Pipeline Steps:
   1. PDF → Markdown    Convert PDF to structured markdown
@@ -258,7 +258,7 @@ async function main() {
     console.log('│  POST: Cross-Unit Topic Consolidation                      │');
     console.log('└─────────────────────────────────────────────────────────────┘\n');
 
-    const consolidationResult = runScript('scripts/suggest-unit-topics.ts', ['--consolidate'], options.dryRun);
+    const consolidationResult = runScript('scripts/corpus-suggest-topics.ts', ['--consolidate'], options.dryRun);
     if (consolidationResult.output) {
       console.log(consolidationResult.output);
     }

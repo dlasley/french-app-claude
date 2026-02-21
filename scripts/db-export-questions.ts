@@ -2,10 +2,10 @@
  * Export questions table to JSON for inspection, archival, or cross-model audit.
  *
  * Usage:
- *   npx tsx scripts/export-questions.ts --output data/corpus-export.json
- *   npx tsx scripts/export-questions.ts --output data/corpus-export.json --columns minimal
- *   npx tsx scripts/export-questions.ts --output data/corpus-export.json --unit unit-2
- *   npx tsx scripts/export-questions.ts --output data/corpus-export.json --type fill-in-blank
+ *   npx tsx scripts/db-export-questions.ts --output data/corpus-export.json
+ *   npx tsx scripts/db-export-questions.ts --output data/corpus-export.json --columns minimal
+ *   npx tsx scripts/db-export-questions.ts --output data/corpus-export.json --unit unit-2
+ *   npx tsx scripts/db-export-questions.ts --output data/corpus-export.json --type fill-in-blank
  */
 
 import { config } from 'dotenv';

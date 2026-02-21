@@ -2,8 +2,7 @@
  * Shared database query utilities for pipeline scripts.
  *
  * Provides Supabase client init, paginated question fetch,
- * and distribution analysis — used by plan-generation.ts and
- * check-writing-questions.ts.
+ * and distribution analysis — used by corpus-plan-generation.ts.
  */
 
 import { config } from 'dotenv';

@@ -3,9 +3,9 @@
  * Analyzes current distribution and creates an execution plan to reach target distribution
  *
  * Usage:
- *   npx tsx scripts/plan-generation.ts              # Show analysis and plan
- *   npx tsx scripts/plan-generation.ts --execute    # Execute the plan
- *   npx tsx scripts/plan-generation.ts --analyze-only  # Just show analysis
+ *   npx tsx scripts/corpus-plan-generation.ts              # Show analysis and plan
+ *   npx tsx scripts/corpus-plan-generation.ts --execute    # Execute the plan
+ *   npx tsx scripts/corpus-plan-generation.ts --analyze-only  # Just show analysis
  *
  * Options:
  *   --execute        Execute the generation plan
@@ -149,7 +149,7 @@ Question Generation Planner
 Analyzes current question distribution and creates an execution plan
 to bring the database into alignment with target distribution.
 
-Usage: npx tsx scripts/plan-generation.ts [options]
+Usage: npx tsx scripts/corpus-plan-generation.ts [options]
 
 Options:
   --execute           Execute the generation plan (prompts for confirmation)
@@ -158,9 +158,9 @@ Options:
   --help, -h          Show this help message
 
 Examples:
-  npx tsx scripts/plan-generation.ts              # Show analysis and plan
-  npx tsx scripts/plan-generation.ts --execute    # Execute the plan
-  npx tsx scripts/plan-generation.ts --analyze-only
+  npx tsx scripts/corpus-plan-generation.ts              # Show analysis and plan
+  npx tsx scripts/corpus-plan-generation.ts --execute    # Execute the plan
+  npx tsx scripts/corpus-plan-generation.ts --analyze-only
   `);
 }
 
@@ -240,7 +240,7 @@ function generatePlan(analysis: DistributionAnalysis): GenerationPlan {
     const estimatedCost = estimatedApiCalls * COST_PER_API_CALL;
 
     // Build command
-    let command = `npx tsx scripts/generate-questions.ts --type writing --writing-type ${wt}`;
+    let command = `npx tsx scripts/corpus-generate-questions.ts --type writing --writing-type ${wt}`;
     if (useTargetedTopics && compatibility.topics.length <= 2) {
       // For very few topics, generate more per topic
       command += ` --count ${Math.ceil(needed / (compatibility.topics.length * 3))}`;
@@ -331,8 +331,8 @@ async function executeStep(step: GenerationStep): Promise<boolean> {
   console.log(`   ${step.command}\n`);
 
   return new Promise((resolve) => {
-    const args = step.command.replace('npx tsx scripts/generate-questions.ts ', '').split(' ');
-    const proc = spawn('npx', ['tsx', 'scripts/generate-questions.ts', ...args], {
+    const args = step.command.replace('npx tsx scripts/corpus-generate-questions.ts ', '').split(' ');
+    const proc = spawn('npx', ['tsx', 'scripts/corpus-generate-questions.ts', ...args], {
       stdio: 'inherit',
       shell: true,
     });
@@ -397,7 +397,7 @@ async function main() {
     if (questions.length === 0) {
       console.log('⚠️  No questions found in database!');
       console.log('\nRun the full regeneration pipeline first:');
-      console.log('  npx tsx scripts/regenerate.ts --all --write-db --audit');
+      console.log('  npx tsx scripts/corpus-generate.ts --all --write-db --audit');
       return;
     }
 

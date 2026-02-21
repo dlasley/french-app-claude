@@ -1,7 +1,7 @@
 /**
  * PDF-to-markdown conversion utilities.
  *
- * Extracted from regenerate.ts — handles PDF text extraction,
+ * Extracted from corpus-generate.ts — handles PDF text extraction,
  * chunking, Claude API conversion, and artifact cleanup.
  */
 

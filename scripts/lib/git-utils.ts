@@ -2,7 +2,7 @@
  * Shared git state utilities for pipeline scripts.
  *
  * Provides git info capture and safety checks for experiment mode.
- * Used by generate-questions.ts, audit-quality-mistral.ts, create-experiment.ts.
+ * Used by corpus-generate-questions.ts, audit-mistral.ts, experiment-create.ts.
  */
 
 import { execSync } from 'child_process';

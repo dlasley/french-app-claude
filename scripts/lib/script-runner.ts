@@ -1,7 +1,7 @@
 /**
  * Shared process execution helpers.
  *
- * Extracted from regenerate.ts — provides synchronous and async
+ * Extracted from corpus-generate.ts — provides synchronous and async
  * script execution, plus interactive prompt utility.
  */
 

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "generate-questions": "tsx scripts/generate-questions.ts"
+    "generate-questions": "tsx scripts/corpus-generate-questions.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

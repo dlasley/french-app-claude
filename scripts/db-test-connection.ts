@@ -2,7 +2,7 @@
  * Test Database Connection
  * Verifies Supabase connectivity and schema for all core tables
  *
- * Run with: npx tsx scripts/test-db-connection.ts
+ * Run with: npx tsx scripts/db-test-connection.ts
  */
 
 import { config } from 'dotenv';

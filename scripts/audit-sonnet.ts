@@ -7,16 +7,16 @@
  * Use Mistral audit for 9-criteria evaluation with remediation.
  *
  * Usage:
- *   npx tsx scripts/audit-quality.ts                          # Audit all questions
- *   npx tsx scripts/audit-quality.ts --unit unit-2            # Filter by unit
- *   npx tsx scripts/audit-quality.ts --difficulty advanced     # Filter by difficulty
- *   npx tsx scripts/audit-quality.ts --type writing           # Filter by question type
- *   npx tsx scripts/audit-quality.ts --model claude-haiku-4-5-20251001  # Filter by generator model
- *   npx tsx scripts/audit-quality.ts --limit 50               # Random sample of N questions
- *   npx tsx scripts/audit-quality.ts --batch batch_xyz        # Filter by batch_id
- *   npx tsx scripts/audit-quality.ts --write-db --unit unit-2 # Write quality_status to DB
- *   npx tsx scripts/audit-quality.ts --write-db --pending-only # Audit only pending questions
- *   npx tsx scripts/audit-quality.ts --export data/audit-sonnet.json  # Export results to JSON
+ *   npx tsx scripts/audit-sonnet.ts                          # Audit all questions
+ *   npx tsx scripts/audit-sonnet.ts --unit unit-2            # Filter by unit
+ *   npx tsx scripts/audit-sonnet.ts --difficulty advanced     # Filter by difficulty
+ *   npx tsx scripts/audit-sonnet.ts --type writing           # Filter by question type
+ *   npx tsx scripts/audit-sonnet.ts --model claude-haiku-4-5-20251001  # Filter by generator model
+ *   npx tsx scripts/audit-sonnet.ts --limit 50               # Random sample of N questions
+ *   npx tsx scripts/audit-sonnet.ts --batch batch_xyz        # Filter by batch_id
+ *   npx tsx scripts/audit-sonnet.ts --write-db --unit unit-2 # Write quality_status to DB
+ *   npx tsx scripts/audit-sonnet.ts --write-db --pending-only # Audit only pending questions
+ *   npx tsx scripts/audit-sonnet.ts --export data/audit-sonnet.json  # Export results to JSON
  */
 
 import { config } from 'dotenv';

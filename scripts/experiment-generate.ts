@@ -214,7 +214,7 @@ async function main() {
       '--metric', options.metric,
       '--output-id',
     ];
-    const cmd = `npx tsx scripts/create-experiment.ts ${createArgs.map(a => `"${a}"`).join(' ')}`;
+    const cmd = `npx tsx scripts/experiment-create.ts ${createArgs.map(a => `"${a}"`).join(' ')}`;
     experimentId = execSync(cmd, { encoding: 'utf-8' }).trim();
     console.log(`  Experiment ID: ${experimentId}`);
   }
@@ -282,7 +282,7 @@ async function main() {
     console.log(`  [DRY RUN] Would export to ${exportPath}`);
     console.log(`  [DRY RUN] Would write report to ${reportPath}`);
   } else {
-    await runScriptAsync('scripts/compare-experiments.ts', [
+    await runScriptAsync('scripts/experiment-compare.ts', [
       '--experiment', experimentId,
       '--export', exportPath,
       '--report', reportPath,

@@ -9,15 +9,15 @@
  *   Estimated cost for full corpus (~1,039 questions): ~$1-2
  *
  * Usage:
- *   npx tsx scripts/audit-quality-mistral.ts                        # Audit all questions
- *   npx tsx scripts/audit-quality-mistral.ts --unit unit-2          # Filter by unit
- *   npx tsx scripts/audit-quality-mistral.ts --difficulty advanced   # Filter by difficulty
- *   npx tsx scripts/audit-quality-mistral.ts --type writing         # Filter by question type
- *   npx tsx scripts/audit-quality-mistral.ts --limit 50             # Random sample of N
- *   npx tsx scripts/audit-quality-mistral.ts --batch batch_xyz      # Filter by batch_id
- *   npx tsx scripts/audit-quality-mistral.ts --pending-only         # Audit only pending questions
- *   npx tsx scripts/audit-quality-mistral.ts --export data/out.json # Export results to JSON
- *   npx tsx scripts/audit-quality-mistral.ts --write-db              # Write quality_status + audit_metadata to DB
+ *   npx tsx scripts/audit-mistral.ts                        # Audit all questions
+ *   npx tsx scripts/audit-mistral.ts --unit unit-2          # Filter by unit
+ *   npx tsx scripts/audit-mistral.ts --difficulty advanced   # Filter by difficulty
+ *   npx tsx scripts/audit-mistral.ts --type writing         # Filter by question type
+ *   npx tsx scripts/audit-mistral.ts --limit 50             # Random sample of N
+ *   npx tsx scripts/audit-mistral.ts --batch batch_xyz      # Filter by batch_id
+ *   npx tsx scripts/audit-mistral.ts --pending-only         # Audit only pending questions
+ *   npx tsx scripts/audit-mistral.ts --export data/out.json # Export results to JSON
+ *   npx tsx scripts/audit-mistral.ts --write-db              # Write quality_status + audit_metadata to DB
  */
 
 import { config } from 'dotenv';

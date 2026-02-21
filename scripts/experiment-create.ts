@@ -2,10 +2,10 @@
  * Create a new experiment and snapshot the control cohort.
  *
  * Interactive mode (prompts for experiment design):
- *   npx tsx scripts/create-experiment.ts --unit unit-2
+ *   npx tsx scripts/experiment-create.ts --unit unit-2
  *
  * Non-interactive mode (all flags provided, for automation):
- *   npx tsx scripts/create-experiment.ts --unit unit-2 \
+ *   npx tsx scripts/experiment-create.ts --unit unit-2 \
  *     --name "Markdown prompt comparison" \
  *     --research-question "Does reconverted markdown improve quality?" \
  *     --hypothesis "Reconverted markdown will improve gate pass rate by 5+pp" \
@@ -122,7 +122,7 @@ function parseArgs(): CLIOptions {
 
 function printUsage(): void {
   console.error(`
-Usage: npx tsx scripts/create-experiment.ts --unit <unit-id> [options]
+Usage: npx tsx scripts/experiment-create.ts --unit <unit-id> [options]
 
 Options:
   --unit <unit-id>              Target unit (required)

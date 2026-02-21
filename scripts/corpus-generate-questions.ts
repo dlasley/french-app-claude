@@ -21,10 +21,10 @@
  *   --type auto-selects the appropriate model for that type.
  *
  * Examples:
- *   npx tsx scripts/generate-questions.ts --unit unit-3 --write-db          # Hybrid mode
- *   npx tsx scripts/generate-questions.ts --unit unit-3 --type writing      # Sonnet only
- *   npx tsx scripts/generate-questions.ts --unit unit-3 --model claude-haiku-4-5-20251001  # Force Haiku
- *   npx tsx scripts/generate-questions.ts --write-db --dry-run
+ *   npx tsx scripts/corpus-generate-questions.ts --unit unit-3 --write-db          # Hybrid mode
+ *   npx tsx scripts/corpus-generate-questions.ts --unit unit-3 --type writing      # Sonnet only
+ *   npx tsx scripts/corpus-generate-questions.ts --unit unit-3 --model claude-haiku-4-5-20251001  # Force Haiku
+ *   npx tsx scripts/corpus-generate-questions.ts --write-db --dry-run
  */
 
 import { config } from 'dotenv';
@@ -281,7 +281,7 @@ function printHelp(): void {
   console.log(`
 Question Generation Script
 
-Usage: npx tsx scripts/generate-questions.ts [options]
+Usage: npx tsx scripts/corpus-generate-questions.ts [options]
 
 Options:
   --unit <unit-id>        Generate for specific unit only (e.g., --unit unit-3)
@@ -305,11 +305,11 @@ Hybrid Model Generation:
   --type auto-selects the appropriate model for that type.
 
 Examples:
-  npx tsx scripts/generate-questions.ts --unit unit-3 --write-db          # Hybrid mode
-  npx tsx scripts/generate-questions.ts --unit unit-3 --type writing      # Sonnet auto-selected
-  npx tsx scripts/generate-questions.ts --model claude-haiku-4-5-20251001 # Force single model
-  npx tsx scripts/generate-questions.ts --type writing --writing-type conjugation --write-db
-  npx tsx scripts/generate-questions.ts --write-db --dry-run
+  npx tsx scripts/corpus-generate-questions.ts --unit unit-3 --write-db          # Hybrid mode
+  npx tsx scripts/corpus-generate-questions.ts --unit unit-3 --type writing      # Sonnet auto-selected
+  npx tsx scripts/corpus-generate-questions.ts --model claude-haiku-4-5-20251001 # Force single model
+  npx tsx scripts/corpus-generate-questions.ts --type writing --writing-type conjugation --write-db
+  npx tsx scripts/corpus-generate-questions.ts --write-db --dry-run
   `);
 }
 

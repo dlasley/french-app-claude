@@ -5,10 +5,10 @@
  * 1. Convert PDF to markdown (convert-pdfs.ts)
  * 2. Run this script to extract and validate topics
  * 3. Review suggestions and update units.ts
- * 4. Run generate-questions.ts for the unit
+ * 4. Run corpus-generate-questions.ts for the unit
  *
- * Run with: npx tsx scripts/suggest-unit-topics.ts <markdown-file> <unit-id>
- *           npx tsx scripts/suggest-unit-topics.ts --consolidate
+ * Run with: npx tsx scripts/corpus-suggest-topics.ts <markdown-file> <unit-id>
+ *           npx tsx scripts/corpus-suggest-topics.ts --consolidate
  */
 
 import { config } from 'dotenv';
@@ -366,13 +366,13 @@ async function main() {
   }
 
   if (args.length < 2) {
-    console.error('Usage: npx tsx scripts/suggest-unit-topics.ts <markdown-file> <unit-id>');
-    console.error('       npx tsx scripts/suggest-unit-topics.ts --consolidate');
+    console.error('Usage: npx tsx scripts/corpus-suggest-topics.ts <markdown-file> <unit-id>');
+    console.error('       npx tsx scripts/corpus-suggest-topics.ts --consolidate');
     console.error('');
     console.error('Examples:');
-    console.error('  npx tsx scripts/suggest-unit-topics.ts learnings/French\\ 1\\ Unit\\ 4.md unit-4');
-    console.error('  npx tsx scripts/suggest-unit-topics.ts learnings/test-conversions/unit-2-test.md unit-2');
-    console.error('  npx tsx scripts/suggest-unit-topics.ts --consolidate');
+    console.error('  npx tsx scripts/corpus-suggest-topics.ts learnings/French\\ 1\\ Unit\\ 4.md unit-4');
+    console.error('  npx tsx scripts/corpus-suggest-topics.ts learnings/test-conversions/unit-2-test.md unit-2');
+    console.error('  npx tsx scripts/corpus-suggest-topics.ts --consolidate');
     process.exit(1);
   }
 
