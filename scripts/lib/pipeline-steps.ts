@@ -17,7 +17,7 @@ import {
   extractPdfText,
 } from './pdf-conversion';
 import { runScript, runScriptAsync, promptUser } from './script-runner';
-import { findMarkdownForUnit, findPdfsForUnit, LEARNINGS_DIR } from './unit-discovery';
+import { findMarkdownForUnit, findPdfsForUnit, getCanonicalFilename, getUnitLabel, LEARNINGS_DIR } from './unit-discovery';
 
 /**
  * Options shared across pipeline steps.
@@ -97,9 +97,7 @@ export async function stepConvertPdf(
   }
 
   // Combined output path
-  const combinedOutput = unitId === 'introduction'
-    ? path.join(LEARNINGS_DIR, 'French 1 Introduction.md')
-    : path.join(LEARNINGS_DIR, `French 1 Unit ${unitId.replace('unit-', '')}.md`);
+  const combinedOutput = path.join(LEARNINGS_DIR, getCanonicalFilename(unitId, '.md'));
 
   // Dry run - just report what would happen
   if (options.dryRun) {
@@ -330,12 +328,12 @@ export async function stepAutoUpdateFiles(
     headings: headingMappings[name] || [],
   }));
 
-  const unitNum = unitId.replace('unit-', '');
+  const label = getUnitLabel(unitId);
   const row = {
     id: unitId,
-    title: `🇫🇷 Unit ${unitNum}`,
+    title: `🇫🇷 ${label}`,
     label: suggestedLabel,
-    description: `Unit ${unitNum} content`,
+    description: `${label} content`,
     topics: topicsWithHeadings,
     sort_order: units.length, // append after existing units
   };

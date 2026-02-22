@@ -27,6 +27,7 @@ import {
   checkTopicSimilarity,
   TopicSimilarity,
 } from './lib/topic-utils';
+import { getUnitLabel } from './lib/unit-discovery';
 import type { Unit } from '../src/types';
 
 const anthropic = new Anthropic({
@@ -497,7 +498,7 @@ Examples:
 
 {
   id: '${unitId}',
-  title: '🇫🇷 ${existingUnit?.title.replace('🇫🇷 ', '') || `Unit ${unitId.replace('unit-', '')}`}',${finalLabel ? `\n  label: '${finalLabel.replace(/'/g, "\\'")}',` : ''}
+  title: '🇫🇷 ${existingUnit?.title.replace('🇫🇷 ', '') || getUnitLabel(unitId)}',${finalLabel ? `\n  label: '${finalLabel.replace(/'/g, "\\'")}',` : ''}
   description: '${existingUnit?.description || 'TODO: Add description'}',
   topics: [
 ${suggestedTopics.map(t => `    '${t.replace(/'/g, "\\'")}',`).join('\n')}

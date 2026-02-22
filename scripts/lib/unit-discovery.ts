@@ -15,6 +15,34 @@ const LEARNINGS_DIR = path.join(process.cwd(), 'learnings');
 
 export { PDF_DIR, LEARNINGS_DIR };
 
+/** Derive the canonical label from a unit ID (e.g. "unit-2" → "Unit 2", "introduction" → "Introduction") */
+export function getUnitLabel(unitId: string): string {
+  return unitId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/** Derive the canonical filename for a unit (e.g. "French 1 Unit 2.pdf", "French 1 Introduction.md") */
+export function getCanonicalFilename(unitId: string, ext: '.md' | '.pdf'): string {
+  return `French 1 ${getUnitLabel(unitId)}${ext}`;
+}
+
+/**
+ * Build a regex pattern that matches filenames for a given unit ID.
+ * For unit-N IDs, requires the number to be followed by a non-digit (or end of string)
+ * to avoid "unit 2" matching "unit 20".
+ */
+function buildUnitFilePattern(unitId: string): RegExp {
+  const label = getUnitLabel(unitId);
+  // Extract trailing number if present (e.g. "Unit 2" → "2")
+  const trailingNum = label.match(/\d+$/);
+  if (trailingNum) {
+    // Boundary-safe: require non-digit after the number
+    const escaped = label.replace(/\d+$/, '');
+    return new RegExp(`${escaped.trim()}[\\s_-]?${trailingNum[0]}(?:\\D|$)`, 'i');
+  }
+  // No trailing number (e.g. "Introduction") — simple substring match
+  return new RegExp(label, 'i');
+}
+
 /**
  * Find all PDF files for a unit
  * Returns all PDFs matching the unit pattern (canonical first, then others)
@@ -27,35 +55,8 @@ export function findPdfsForUnit(unitId: string): string[] {
   }
 
   const files = fs.readdirSync(PDF_DIR).filter(f => f.toLowerCase().endsWith('.pdf'));
-
-  // Special case for 'introduction' unit
-  if (unitId === 'introduction') {
-    const pattern = /introduction/i;
-    for (const file of files) {
-      if (pattern.test(file)) {
-        matches.push(path.join(PDF_DIR, file));
-      }
-    }
-    // Sort with "French 1 Introduction.pdf" first
-    matches.sort((a, b) => {
-      const aIsCanonical = path.basename(a).toLowerCase() === 'french 1 introduction.pdf';
-      const bIsCanonical = path.basename(b).toLowerCase() === 'french 1 introduction.pdf';
-      if (aIsCanonical && !bIsCanonical) return -1;
-      if (!aIsCanonical && bIsCanonical) return 1;
-      return a.localeCompare(b);
-    });
-    return matches;
-  }
-
-  // Standard unit-N pattern handling
-  const unitNum = unitId.replace('unit-', '');
-
-  // Pattern requires unit number to be followed by non-digit (or end of string)
-  // to avoid "unit 20" matching "unit 2"
-  const pattern = new RegExp(`unit[\\s_-]?${unitNum}(?:\\D|$)`, 'i');
-
-  // Sort: canonical first (French 1 Unit X.pdf), then others alphabetically
-  const canonical = `French 1 Unit ${unitNum}.pdf`;
+  const pattern = buildUnitFilePattern(unitId);
+  const canonical = getCanonicalFilename(unitId, '.pdf');
 
   for (const file of files) {
     if (pattern.test(file)) {
@@ -63,10 +64,10 @@ export function findPdfsForUnit(unitId: string): string[] {
     }
   }
 
-  // Sort with canonical first
+  // Sort with canonical first, then alphabetically
   matches.sort((a, b) => {
-    const aIsCanonical = path.basename(a) === canonical;
-    const bIsCanonical = path.basename(b) === canonical;
+    const aIsCanonical = path.basename(a).toLowerCase() === canonical.toLowerCase();
+    const bIsCanonical = path.basename(b).toLowerCase() === canonical.toLowerCase();
     if (aIsCanonical && !bIsCanonical) return -1;
     if (!aIsCanonical && bIsCanonical) return 1;
     return a.localeCompare(b);
@@ -81,56 +82,13 @@ export function findPdfsForUnit(unitId: string): string[] {
  * Throws on ambiguous matches, returns null if nothing found
  */
 export function findMarkdownForUnit(unitId: string): string | null {
-  // Special case for 'introduction' unit
-  if (unitId === 'introduction') {
-    const explicitPaths = [
-      path.join(LEARNINGS_DIR, 'French 1 Introduction.md'),
-      path.join(LEARNINGS_DIR, 'introduction.md'),
-    ];
-
-    for (const p of explicitPaths) {
-      if (fs.existsSync(p)) {
-        return p;
-      }
-    }
-
-    // Search for any .md file containing "introduction" in the filename
-    const pattern = /introduction/i;
-    const searchDirs = [LEARNINGS_DIR, path.join(LEARNINGS_DIR, 'test-conversions')];
-    const matches: string[] = [];
-
-    for (const dir of searchDirs) {
-      if (!fs.existsSync(dir)) continue;
-      const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
-      for (const file of files) {
-        if (pattern.test(file)) {
-          matches.push(path.join(dir, file));
-        }
-      }
-    }
-
-    if (matches.length === 1) {
-      console.log(`  Found markdown via pattern match: ${matches[0]}`);
-      return matches[0];
-    }
-    if (matches.length > 1) {
-      console.error(`  Ambiguous: found ${matches.length} markdown files matching "introduction":`);
-      for (const m of matches) {
-        console.error(`     - ${m}`);
-      }
-      throw new Error('Ambiguous markdown files for introduction');
-    }
-    return null;
-  }
-
-  // Standard unit-N handling
-  const unitNum = unitId.replace('unit-', '');
+  const canonical = getCanonicalFilename(unitId, '.md');
 
   // Priority 1: Check explicit paths first (no ambiguity possible)
   const explicitPaths = [
-    path.join(LEARNINGS_DIR, `French 1 Unit ${unitNum}.md`),
-    path.join(LEARNINGS_DIR, `unit-${unitNum}.md`),
-    path.join(LEARNINGS_DIR, 'test-conversions', `unit-${unitNum}-test.md`),
+    path.join(LEARNINGS_DIR, canonical),
+    path.join(LEARNINGS_DIR, `${unitId}.md`),
+    path.join(LEARNINGS_DIR, 'test-conversions', `${unitId}-test.md`),
   ];
 
   for (const p of explicitPaths) {
@@ -139,11 +97,8 @@ export function findMarkdownForUnit(unitId: string): string | null {
     }
   }
 
-  // Priority 2: Search for any .md file containing "unit X" or "unit-X" in the filename
-  // Pattern requires unit number to be followed by non-digit (or end of string)
-  // to avoid "unit 20" matching "unit 2"
-  const pattern = new RegExp(`unit[\\s_-]?${unitNum}(?:\\D|$)`, 'i');
-
+  // Priority 2: Search by pattern
+  const pattern = buildUnitFilePattern(unitId);
   const searchDirs = [LEARNINGS_DIR, path.join(LEARNINGS_DIR, 'test-conversions')];
   const matches: string[] = [];
 

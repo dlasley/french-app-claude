@@ -24,6 +24,7 @@ import { createHash } from 'crypto';
 import { fetchUnitsFromDb } from '../src/lib/units-db';
 import { loadUnitMaterials, extractTopicContent } from '../src/lib/learning-materials';
 import { createScriptSupabase } from './lib/db-queries';
+import { getCanonicalFilename } from './lib/unit-discovery';
 import type { Unit } from '../src/types';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -148,9 +149,7 @@ function extractForUnit(unitId: string, units: Unit[]): ExtractedResource[] {
     return [];
   }
 
-  const sourceFile = unitId === 'introduction'
-    ? 'learnings/French 1 Introduction.md'
-    : `learnings/French 1 Unit ${unitId.replace('unit-', '')}.md`;
+  const sourceFile = `learnings/${getCanonicalFilename(unitId, '.md')}`;
 
   const resources: ExtractedResource[] = [];
   const capturedUrls = new Set<string>();
