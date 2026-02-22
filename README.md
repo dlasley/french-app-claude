@@ -39,6 +39,17 @@ Stage 2 enforces structural correctness and answer integrity. Stage 3 performs a
 
 This layered architecture reduces correlated model failure risk while preserving structured downstream validation controls.
 
+### Three-Stage Evaluation Pipeline
+
+```text
+Student Answer → Stage 1: Exact Match → Stage 2: Fuzzy Match → Stage 3: Semantic → Result
+                    (normalized)         (Levenshtein)           (LLM A₂)
+```
+
+- **Stage 1 — Exact Match**: Normalized string comparison (case, whitespace, accents)
+- **Stage 2 — Fuzzy Match**: Levenshtein distance thresholds scaled by difficulty level
+- **Stage 3 — Semantic Fallback**: LLM-based evaluation for low-confidence cases
+
 ---
 
 ## Model Selection Rationale
@@ -91,11 +102,7 @@ Experiments do not impact production question sets.
 
 ## Reliability and Evaluation Strategy
 
-Typed answers use a tiered evaluation system designed to balance precision, recall, and cost:
-
-1. Exact match (normalized comparison)
-2. Fuzzy match (Levenshtein distance thresholds by difficulty)
-3. Semantic fallback (LLM-based evaluation for low-confidence cases)
+Typed answers are evaluated through the three-stage evaluation pipeline described above, balancing precision, recall, and cost.
 
 Additional safeguards:
 - Lifecycle gating before production exposure
@@ -128,16 +135,16 @@ The system is configurable via environment variables to support model routing, f
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | Anthropic API key for generation and validation |
-| `MISTRAL_API_KEY` | Yes (audit) | Mistral API key for Stage 3 audit |
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
-| `SUPABASE_SECRET_KEY` | Yes (scripts) | Supabase service role key for CLI DB writes |
 | `ADMIN_PASSWORD` | Admin only | Password for admin dashboard login |
 | `ADMIN_SESSION_SECRET` | Admin only | Hex string for HMAC cookie signing |
+| `ANTHROPIC_API_KEY` | Yes | Anthropic API key for generation and validation |
+| `MISTRAL_API_KEY` | Yes (audit) | Mistral API key for Stage 3 audit |
 | `NEXT_PUBLIC_ENABLE_ADMIN_PANEL` | No | Enable admin dashboard (`true`/`false`) |
-| `NEXT_PUBLIC_SHOW_STUDY_CODE` | No | Toggle study code display |
 | `NEXT_PUBLIC_ENABLE_LEITNER` | No | Toggle adaptive question selection |
+| `NEXT_PUBLIC_SHOW_STUDY_CODE` | No | Toggle study code display |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_SECRET_KEY` | Yes (scripts) | Supabase service role key for CLI DB writes |
 
 ---
 

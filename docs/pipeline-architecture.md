@@ -7,20 +7,20 @@ Questions go through three independent stages before reaching students. Each sta
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        CONTENT SOURCES                              │
-│  PDF/  ──→ data/markdown/  ──→ units table (topics)                │
-│  (Sonnet 4)   (Sonnet 4)        (Sonnet 4)                        │
+│  PDF/  ──→ data/markdown/  ──→ units table (topics)                 │
+│  (Sonnet 4)   (Sonnet 4)        (Sonnet 4)                          │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  STAGE 1: GENERATION                                                │
-│  scripts/corpus-generate-questions.ts                                      │
+│  scripts/corpus-generate-questions.ts                               │
 │                                                                     │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐  │
-│  │ Beginner/Int │    │   Advanced   │    │   --model override   │  │
-│  │  MCQ / T-F   │    │  All types   │    │  (e.g. Mistral)      │  │
-│  │  Haiku 4.5   │    │  Sonnet 4.5  │    │  Any supported model │  │
-│  └──────┬───────┘    └──────┬───────┘    └──────────┬───────────┘  │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐   │
+│  │ Beginner/Int │    │   Advanced   │    │   --model override   │   │
+│  │  MCQ / T-F   │    │  All types   │    │  (e.g. Mistral)      │   │
+│  │  Haiku 4.5   │    │  Sonnet 4.5  │    │  Any supported model │   │
+│  └──────┬───────┘    └──────┬───────┘    └──────────┬───────────┘   │
 │         │                   │                       │               │
 │         └───────────┬───────┘───────────────────────┘               │
 │                     ▼                                               │
@@ -31,47 +31,47 @@ Questions go through three independent stages before reaching students. Each sta
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  STAGE 2: VALIDATION                    (in-process, pre-insert)    │
-│  scripts/corpus-generate-questions.ts → validateAnswers()                  │
+│  scripts/corpus-generate-questions.ts → validateAnswers()           │
 │  Model: Sonnet 4.5                                                  │
 │                                                                     │
 │  For each batch of ~5 questions:                                    │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ 1. Answer correctness — is the answer factually right?      │   │
-│  │ 2. Grammar check — correct French in question + answer?     │   │
-│  │ 3. Difficulty re-labeling — does label match cognitive       │   │
-│  │    demand? (beginner/intermediate/advanced)                  │   │
-│  │ 4. Acceptable variations — 2-3 alternate answers for        │   │
-│  │    typed-answer questions                                    │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ 1. Answer correctness — is the answer factually right?      │    │
+│  │ 2. Grammar check — correct French in question + answer?     │    │
+│  │ 3. Difficulty re-labeling — does label match cognitive      │    │
+│  │    demand? (beginner/intermediate/advanced)                 │    │
+│  │ 4. Acceptable variations — 2-3 alternate answers for        │    │
+│  │    typed-answer questions                                   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
 │                                                                     │
 │  Outcomes:                                                          │
-│    PASS → insert to DB as quality_status = 'pending'               │
+│    PASS → insert to DB as quality_status = 'pending'                │
 │    FAIL → rejected, logged, not inserted                            │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  STAGE 3: AUDIT & REMEDIATION           (separate process)          │
-│  Default: audit-mistral.ts      Model: Mistral Large        │
-│  Override: audit-sonnet.ts (--auditor sonnet)  Model: Sonnet 4.5   │
+│  Default: audit-mistral.ts      Model: Mistral Large                │
+│  Override: audit-sonnet.ts (--auditor sonnet)  Model: Sonnet 4.5    │
 │                                                                     │
 │  Gate criteria (6 — all must pass for 'active'):                    │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ 1. answer_correct — is the answer right?                    │   │
-│  │ 2. grammar_correct — is the French correct?                 │   │
-│  │ 3. no_hallucination — is the content grounded?              │   │
-│  │ 4. question_coherent — does the question make sense?        │   │
-│  │ 5. natural_french — does the French sound natural?          │   │
-│  │ 6. register_appropriate — is formality level correct?       │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ 1. answer_correct — is the answer right?                    │    │
+│  │ 2. grammar_correct — is the French correct?                 │    │
+│  │ 3. no_hallucination — is the content grounded?              │    │
+│  │ 4. question_coherent — does the question make sense?        │    │
+│  │ 5. natural_french — does the French sound natural?          │    │
+│  │ 6. register_appropriate — is formality level correct?       │    │
+│  └─────────────────────────────────────────────────────────────┘    │
 │  Soft signals (logged, not gated):                                  │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ 7. difficulty_appropriate — is difficulty label correct?     │   │
-│  │ 8. variations_valid — are acceptable variations correct?    │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ 7. difficulty_appropriate — is difficulty label correct?    │    │
+│  │ 8. variations_valid — are acceptable variations correct?    │    │
+│  └─────────────────────────────────────────────────────────────┘    │
 │  Note: Sonnet audit evaluates criteria 1-4 only (no remediation).   │
 │                                                                     │
-│  Writes to DB (--write-db):                                        │
+│  REMEDIATION: Writes to DB (--write-db):                            │
 │    audit_metadata JSONB — full diagnostic snapshot per question     │
 │    Mistral: applies suggested_difficulty to passing questions       │
 │    Mistral: removes invalid_variations from acceptable_variations   │
@@ -110,9 +110,9 @@ Questions go through three independent stages before reaching students. Each sta
 
 | Status | Visible to students | Can be deleted | How it gets here |
 |--------|-------------------|----------------|------------------|
-| `pending` | No | Yes | Inserted by generation after passing validation |
-| `active` | Yes | Yes | Promoted by audit (all gate criteria pass) |
-| `flagged` | No | Yes (via batch cascade) | Demoted by audit (any gate criterion fails) |
+| `pending` | No  | Yes | Inserted by generation after passing validation |
+| `active`  | Yes | Yes | Promoted by audit (all gate criteria pass) |
+| `flagged` | No  | Yes (via batch cascade) | Demoted by audit (any gate criterion fails) |
 
 ## Model Assignments
 

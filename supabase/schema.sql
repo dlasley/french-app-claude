@@ -44,24 +44,24 @@ CREATE TABLE quiz_history (
 CREATE INDEX idx_quiz_history_study_code ON quiz_history(study_code_id, quiz_date DESC);
 CREATE INDEX idx_quiz_history_date ON quiz_history(quiz_date DESC);
 
--- Question Results Table
--- Stores individual question attempts for detailed analytics
-CREATE TABLE question_results (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  quiz_history_id UUID REFERENCES quiz_history(id) ON DELETE CASCADE,
-  study_code_id UUID REFERENCES study_codes(id) ON DELETE CASCADE,
-  question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-  topic TEXT NOT NULL,
-  difficulty TEXT NOT NULL,
-  is_correct BOOLEAN NOT NULL,
-  user_answer TEXT,
-  correct_answer TEXT NOT NULL,
-  score INTEGER DEFAULT NULL CHECK (score IS NULL OR (score >= 0 AND score <= 100)),
-  attempted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- Batches Metadata Table
+-- Tracks provenance for each question generation batch run
+CREATE TABLE batches (
+  id TEXT PRIMARY KEY,                         -- e.g., 'batch_2026-02-11_1770838456766'
+  created_at TIMESTAMPTZ DEFAULT NOW(),        -- When the batch started
+  model TEXT,                                  -- Primary/default model for the batch
+  unit_id TEXT,                                -- Target unit (or 'all')
+  difficulty TEXT,                             -- Difficulty filter (or 'all')
+  type_filter TEXT,                            -- Type filter if any (or 'all')
+  question_count INTEGER DEFAULT 0,            -- Total questions generated
+  inserted_count INTEGER DEFAULT 0,            -- Questions inserted (after dedup)
+  duplicate_count INTEGER DEFAULT 0,           -- Duplicates skipped
+  error_count INTEGER DEFAULT 0,              -- Errors encountered
+  config JSONB DEFAULT '{}'::jsonb,            -- Full CLI args snapshot
+  quality_metrics JSONB,                       -- Stage 1+2 filtering stats (meta_filtered, validation_pass_rate, etc.)
+  description TEXT,                            -- Human or AI description of batch context
+  prompt_hash TEXT                             -- SHA-256 prefix of prompt template for change detection
 );
-
-CREATE INDEX idx_question_results_study_code ON question_results(study_code_id);
-CREATE INDEX idx_question_results_topic ON question_results(study_code_id, topic);
 
 -- Questions Table (Unified)
 -- All question types: multiple-choice, true-false, fill-in-blank, writing
@@ -109,24 +109,24 @@ CREATE INDEX idx_questions_unit_topic_diff ON questions(unit_id, topic, difficul
 CREATE INDEX idx_questions_unit_type ON questions(unit_id, type);
 CREATE INDEX idx_questions_quality_status ON questions(quality_status);
 
--- Batches Metadata Table
--- Tracks provenance for each question generation batch run
-CREATE TABLE batches (
-  id TEXT PRIMARY KEY,                         -- e.g., 'batch_2026-02-11_1770838456766'
-  created_at TIMESTAMPTZ DEFAULT NOW(),        -- When the batch started
-  model TEXT,                                  -- Primary/default model for the batch
-  unit_id TEXT,                                -- Target unit (or 'all')
-  difficulty TEXT,                             -- Difficulty filter (or 'all')
-  type_filter TEXT,                            -- Type filter if any (or 'all')
-  question_count INTEGER DEFAULT 0,            -- Total questions generated
-  inserted_count INTEGER DEFAULT 0,            -- Questions inserted (after dedup)
-  duplicate_count INTEGER DEFAULT 0,           -- Duplicates skipped
-  error_count INTEGER DEFAULT 0,              -- Errors encountered
-  config JSONB DEFAULT '{}'::jsonb,            -- Full CLI args snapshot
-  quality_metrics JSONB,                       -- Stage 1+2 filtering stats (meta_filtered, validation_pass_rate, etc.)
-  description TEXT,                            -- Human or AI description of batch context
-  prompt_hash TEXT                             -- SHA-256 prefix of prompt template for change detection
+-- Question Results Table
+-- Stores individual question attempts for detailed analytics
+CREATE TABLE question_results (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  quiz_history_id UUID REFERENCES quiz_history(id) ON DELETE CASCADE,
+  study_code_id UUID REFERENCES study_codes(id) ON DELETE CASCADE,
+  question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  topic TEXT NOT NULL,
+  difficulty TEXT NOT NULL,
+  is_correct BOOLEAN NOT NULL,
+  user_answer TEXT,
+  correct_answer TEXT NOT NULL,
+  score INTEGER DEFAULT NULL CHECK (score IS NULL OR (score >= 0 AND score <= 100)),
+  attempted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX idx_question_results_study_code ON question_results(study_code_id);
+CREATE INDEX idx_question_results_topic ON question_results(study_code_id, topic);
 
 -- Leitner Spaced Repetition State
 -- Tracks per-student per-question box assignments for adaptive question selection
@@ -492,6 +492,31 @@ CREATE TABLE experiments (
   report_path TEXT
 );
 
+-- Experiment Batches: mirrors batches + experiment linkage
+CREATE TABLE experiment_batches (
+  id TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  model TEXT,
+  unit_id TEXT,
+  difficulty TEXT,
+  type_filter TEXT,
+  question_count INTEGER DEFAULT 0,
+  inserted_count INTEGER DEFAULT 0,
+  duplicate_count INTEGER DEFAULT 0,
+  error_count INTEGER DEFAULT 0,
+  config JSONB DEFAULT '{}'::jsonb,
+  quality_metrics JSONB,
+  description TEXT,
+  prompt_hash TEXT,
+
+  -- Experiment linkage
+  experiment_id UUID NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+  cohort TEXT NOT NULL
+);
+
+CREATE INDEX idx_experiment_batches_experiment ON experiment_batches(experiment_id);
+CREATE INDEX idx_experiment_batches_experiment_cohort ON experiment_batches(experiment_id, cohort);
+
 -- Experiment Questions: mirrors questions + experiment linkage
 -- No prevent_flagged_deletion trigger (experiment data is historical)
 CREATE TABLE experiment_questions (
@@ -537,31 +562,6 @@ CREATE TRIGGER experiment_questions_updated_at
   BEFORE UPDATE ON experiment_questions
   FOR EACH ROW
   EXECUTE FUNCTION update_questions_updated_at();
-
--- Experiment Batches: mirrors batches + experiment linkage
-CREATE TABLE experiment_batches (
-  id TEXT PRIMARY KEY,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  model TEXT,
-  unit_id TEXT,
-  difficulty TEXT,
-  type_filter TEXT,
-  question_count INTEGER DEFAULT 0,
-  inserted_count INTEGER DEFAULT 0,
-  duplicate_count INTEGER DEFAULT 0,
-  error_count INTEGER DEFAULT 0,
-  config JSONB DEFAULT '{}'::jsonb,
-  quality_metrics JSONB,
-  description TEXT,
-  prompt_hash TEXT,
-
-  -- Experiment linkage
-  experiment_id UUID NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
-  cohort TEXT NOT NULL
-);
-
-CREATE INDEX idx_experiment_batches_experiment ON experiment_batches(experiment_id);
-CREATE INDEX idx_experiment_batches_experiment_cohort ON experiment_batches(experiment_id, cohort);
 
 -- RLS for experiment tables
 ALTER TABLE experiments ENABLE ROW LEVEL SECURITY;

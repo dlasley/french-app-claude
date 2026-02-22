@@ -32,10 +32,12 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
+import fs from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
 import type { Unit } from '../src/types';
 import { createScriptSupabase } from './lib/db-queries';
 import { fetchUnitsFromDb } from '../src/lib/units-db';
+import { LEARNINGS_DIR, PDF_DIR } from './lib/unit-discovery';
 import {
   stepConvertPdf,
   stepExtractTopics,
@@ -223,6 +225,42 @@ async function runPipelineForUnit(
 }
 
 /**
+ * Discover unit IDs from local files when the units table is empty.
+ * Checks markdown files in learnings/ first, falls back to PDF filenames.
+ */
+function discoverUnitsFromFiles(): string[] {
+  const ids = new Set<string>();
+
+  // Try markdowns first
+  if (fs.existsSync(LEARNINGS_DIR)) {
+    const mdFiles = fs.readdirSync(LEARNINGS_DIR)
+      .filter(f => f.endsWith('.md') && !f.includes('.cohort-'));
+    for (const file of mdFiles) {
+      if (/introduction/i.test(file)) { ids.add('introduction'); continue; }
+      const unitMatch = file.match(/unit[_\s-]?(\d+)/i);
+      if (unitMatch) ids.add(`unit-${unitMatch[1]}`);
+    }
+  }
+
+  // Fall back to PDF filenames if no markdowns found
+  if (ids.size === 0 && fs.existsSync(PDF_DIR)) {
+    const pdfFiles = fs.readdirSync(PDF_DIR)
+      .filter(f => f.toLowerCase().endsWith('.pdf'));
+    for (const file of pdfFiles) {
+      if (/introduction/i.test(file)) { ids.add('introduction'); continue; }
+      const unitMatch = file.match(/unit[_\s-]?(\d+)/i);
+      if (unitMatch) ids.add(`unit-${unitMatch[1]}`);
+    }
+  }
+
+  return [...ids].sort((a, b) => {
+    if (a === 'introduction') return -1;
+    if (b === 'introduction') return 1;
+    return a.localeCompare(b, undefined, { numeric: true });
+  });
+}
+
+/**
  * Main function
  */
 async function main() {
@@ -257,9 +295,19 @@ async function main() {
   }
 
   if (options.unitId === '--all') {
-    // Process all units
-    for (const unit of units) {
-      await runPipelineForUnit(unit.id, options, units);
+    // Discover unit IDs: prefer DB, fall back to local files
+    let unitIds = units.map(u => u.id);
+    if (unitIds.length === 0) {
+      unitIds = discoverUnitsFromFiles();
+      if (unitIds.length === 0) {
+        console.error('\n❌ No units in database and no files found in learnings/ or PDF/');
+        process.exit(1);
+      }
+      console.log(`  No units in DB — discovered ${unitIds.length} from files: ${unitIds.join(', ')}`);
+    }
+
+    for (const id of unitIds) {
+      await runPipelineForUnit(id, options, units);
     }
 
     // Post-processing: cross-unit topic consolidation
@@ -272,12 +320,12 @@ async function main() {
       console.log(consolidationResult.output);
     }
   } else {
-    // Validate unit exists or is a valid new unit
+    // Validate unit exists in DB or has matching files on disk
     const existingUnit = units.find(u => u.id === options.unitId);
-    if (!existingUnit && !options.unitId.match(/^unit-\d+$/)) {
-      console.error(`\n❌ Invalid unit ID: ${options.unitId}`);
-      console.log('   Format: unit-N (e.g., unit-4)');
-      console.log('   Existing units:', units.map(u => u.id).join(', '));
+    if (!existingUnit && !discoverUnitsFromFiles().includes(options.unitId)) {
+      console.error(`\n❌ Unknown unit ID: ${options.unitId}`);
+      console.log('   No matching files in learnings/ or PDF/');
+      console.log('   Discovered units:', discoverUnitsFromFiles().join(', ') || '(none)');
       process.exit(1);
     }
 
