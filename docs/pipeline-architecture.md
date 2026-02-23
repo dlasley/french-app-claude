@@ -131,7 +131,7 @@ Questions go through three independent stages before reaching students. Each sta
 ### Why different models per stage?
 
 - **Generation**: Haiku for structured types (MCQ/T-F) is 10x cheaper than Sonnet with comparable quality. Sonnet handles typed answers and advanced difficulty where calibration matters.
-- **Validation**: Sonnet catches grammar/answer errors from both Haiku and Sonnet generation. Acts as a safety net at zero additional prompt cost (runs in the same script).
+- **Validation**: Sonnet catches grammar/answer errors from both Haiku and Sonnet generation. Acts as a safety net with minimal operational overhead (runs in-process, no separate invocation).
 - **Audit**: Mistral Large is the default auditor because it provides genuine provider independence — it can't share blind spots with the Claude-based generator and validator. Cross-validation showed Mistral caught 476 issues Sonnet missed (14:1 blind spot ratio). Sonnet remains available via `--auditor sonnet` for comparison runs.
 
 ## CLI Commands
